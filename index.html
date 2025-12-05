@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <title>Номера комнат за сегодня</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        body {
+            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 20px 24px 28px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        h1 {
+            margin-top: 0;
+            font-size: 22px;
+        }
+        button {
+            display: inline-block;
+            padding: 10px 18px;
+            font-size: 15px;
+            border-radius: 6px;
+            border: none;
+            background: #0077ff;
+            color: #fff;
+            cursor: pointer;
+        }
+        button:disabled {
+            background: #9bbdf4;
+            cursor: default;
+        }
+        #status {
+            margin-top: 12px;
+            font-size: 14px;
+            color: #555;
+        }
+        #rooms {
+            margin-top: 16px;
+            padding-left: 0;
+            list-style: none;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        #rooms li {
+            padding: 6px 10px;
+            background: #f0f4ff;
+            border-radius: 4px;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        .error {
+            color: #c00;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Номера комнат за сегодня</h1>
+    <p>
+        Нажмите кнопку, чтобы получить номера комнат, которые сегодня были отправлены в указанную беседу ВКонтакте.
+    </p>
+    <button id="loadBtn">Показать номера за сегодня</button>
+
+    <div id="status"></div>
+    <ul id="rooms"></ul>
+</div>
+
+<script>
+    // ===== НАСТРОЙКИ =====
+
+    // ВАШ токен бота ВК (НЕ выкладывать в публичный репозиторий!)
+    const VK_TOKEN = 'vk1.a.nRSWzUxP2yhSjs93Nihcvc7hsAR8XF7ZmAKtVaTH-JE4x9fgmGwWOP52RctD-o40mxK4nuMQfCNB8y8deI8WNcFrgBBxYkQ8KjNYcGU5crYZb5gCDhE8QW4byt5BX0DlcYgJQtaPDSa_LSYW1Hi6Rc0x6kzYQalGhUx5Fi1P0wJPRzUUUoub6VLq3Bk3BzqMgruvvP_0SdytnrgMFaDx1A';
+
+    // peer_id беседы
+    const PEER_ID = 2000000244;
+
+    // Версия API VK
+    const API_VERSION = '5.131';
+
+    // Список допустимых номеров комнат
+    const ALLOWED_ROOMS = [
+        '500', '502', '504', '506', '508', '509', '510', '512', '514', '516', '518', '520', '522', '524', '526', '528',
+        '530', '532', '534', '600', '602', '604', '606', '608', '609', '610', '612', '614', '616', '618', '620', '622',
+        '624', '626', '628', '630', '632', '634', '700', '702', '704', '706', '708', '709', '710', '712', '714', '716',
+        '717', '718', '720', '722', '724', '725', '726', '728', '730', '732', '734', '800', '802', '804', '806', '808',
+        '809', '810', '812', '814', '816', '817', '818', '820', '822', '824', '825', '826', '828', '830', '832', '834',
+        '900', '902', '904', '906', '908', '909', '910', '912', '914', '916', '917', '918', '920', '922', '924', '925',
+        '926', '928', '930', '932', '934', '1000', '1002', '1004', '1006', '1008', '1009', '1010', '1012', '1014', '1016',
+        '1017', '1018', '1020', '1022', '1024', '1025', '1026', '1028', '1030', '1032', '1034', '1100', '1102', '1104',
+        '1106', '1108', '1109', '1110', '1112', '1114', '1116', '1117', '1118', '1120', '1122', '1124', '1125', '1126',
+        '1128', '1130', '1132', '1134', '1200', '1202', '1204', '1206', '1208', '1209', '1210', '1212', '1214', '1216',
+        '1217', '1218', '1220', '1222', '1224', '1225', '1226', '1228', '1230', '1232', '1234', '1300', '1302', '1304',
+        '1306', '1308', '1309', '1310', '1312', '1314', '1316', '1317', '1318', '1320', '1322', '1324', '1325', '1326',
+        '1328', '1330', '1332', '1334', '1400', '1402', '1404', '1406', '1408', '1409', '1410', '1412', '1414', '1416',
+        '1417', '1418', '1420', '1422', '1424', '1425', '1426', '1428', '1430', '1432', '1434', '1500', '1502', '1504',
+        '1506', '1508', '1509', '1510', '1512', '1514', '1516', '1517', '1518', '1520', '1522', '1524', '1525', '1526',
+        '1528', '1530', '1532', '1534', '1600', '1602', '1604', '1606', '1608', '1609', '1610', '1612', '1614', '1616',
+        '1617', '1618', '1620', '1622', '1624', '1625', '1626', '1628', '1630', '1632', '1634', '1700', '1702', '1704',
+        '1706', '1708', '1709', '1710', '1712', '1714', '1716', '1717', '1718', '1720', '1722', '1724', '1725', '1726',
+        '1728', '1730', '1732', '1734', '1800', '1802', '1804', '1806', '1807', '1808', '1810', '1811', '1812', '1814',
+        '1816', '1818', '1902', '1904', '1906', '1908', '1910', '1911', '1912', '1914', '1916', '1918', '1919', '1920'
+    ];
+
+    const ALLOWED_SET = new Set(ALLOWED_ROOMS);
+
+    // ===== ЛОГИКА ПОЛУЧЕНИЯ СООБЩЕНИЙ =====
+
+    const loadBtn = document.getElementById('loadBtn');
+    const statusEl = document.getElementById('status');
+    const roomsEl = document.getElementById('rooms');
+
+    loadBtn.addEventListener('click', () => {
+        getTodayRooms().catch(err => {
+            console.error(err);
+            statusEl.textContent = 'Произошла ошибка при загрузке данных.';
+            statusEl.classList.add('error');
+            loadBtn.disabled = false;
+        });
+    });
+
+    async function getTodayRooms() {
+        if (!VK_TOKEN || VK_TOKEN === 'YOUR_VK_TOKEN_HERE') {
+            statusEl.textContent = 'Сначала укажите реальный токен бота в коде (VK_TOKEN).';
+            statusEl.classList.add('error');
+            return;
+        }
+
+        loadBtn.disabled = true;
+        statusEl.classList.remove('error');
+        statusEl.textContent = 'Загрузка сообщений из беседы...';
+        roomsEl.innerHTML = '';
+
+        // начало сегодняшнего дня по времени браузера пользователя
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const startTs = Math.floor(startOfDay.getTime() / 1000);
+
+        const foundRooms = new Set();
+
+        let offset = 0;
+        const batchSize = 200;
+        let more = true;
+        let totalCount = null;
+
+        while (more) {
+            const url = new URL('https://api.vk.com/method/messages.getHistory');
+            url.searchParams.set('peer_id', PEER_ID);
+            url.searchParams.set('count', batchSize);
+            url.searchParams.set('offset', offset);
+            url.searchParams.set('rev', 0); // 0 — с конца (новые → старые)
+            url.searchParams.set('access_token', VK_TOKEN);
+            url.searchParams.set('v', API_VERSION);
+
+            const res = await fetch(url.toString());
+            const data = await res.json();
+
+            if (data.error) {
+                statusEl.textContent = 'Ошибка VK API: ' + data.error.error_msg;
+                statusEl.classList.add('error');
+                loadBtn.disabled = false;
+                return;
+            }
+
+            const resp = data.response;
+            const items = resp.items || [];
+            if (totalCount === null) totalCount = resp.count || 0;
+
+            if (items.length === 0) break;
+
+            for (const msg of items) {
+                // как только упёрлись в сообщения до начала сегодняшнего дня — выходим
+                if (msg.date < startTs) {
+                    more = false;
+                    break;
+                }
+
+                const text = msg.text || '';
+                // Ищем в тексте все группы из 3–4 цифр
+                const matches = text.match(/\d{3,4}/g);
+                if (matches) {
+                    for (const num of matches) {
+                        if (ALLOWED_SET.has(num)) {
+                            foundRooms.add(num);
+                        }
+                    }
+                }
+            }
+
+            offset += items.length;
+            if (offset >= totalCount) break;
+        }
+
+        if (foundRooms.size === 0) {
+            statusEl.textContent = 'За сегодня подходящих номеров не найдено (по времени вашего браузера).';
+            loadBtn.disabled = false;
+            return;
+        }
+
+        const sorted = Array.from(foundRooms).sort((a, b) => Number(a) - Number(b));
+
+        statusEl.textContent = 'Номера за сегодня:';
+        roomsEl.innerHTML = sorted.map(n => `<li>${n}</li>`).join('');
+
+        loadBtn.disabled = false;
+    }
+</script>
+</body>
+</html>
