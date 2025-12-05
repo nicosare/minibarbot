@@ -1,121 +1,125 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8" />
-    <title>Номера комнат за сегодня</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <style>
-        body {
-            font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            margin: 0;
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            background: #fff;
-            padding: 20px 24px 28px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-        }
-        h1 {
-            margin-top: 0;
-            font-size: 22px;
-        }
-        button {
-            display: inline-block;
-            padding: 10px 18px;
-            font-size: 15px;
-            border-radius: 6px;
-            border: none;
-            background: #0077ff;
-            color: #fff;
-            cursor: pointer;
-        }
-        button:disabled {
-            background: #9bbdf4;
-            cursor: default;
-        }
-        #status {
-            margin-top: 12px;
-            font-size: 14px;
-            color: #555;
-        }
-        #rooms {
-            margin-top: 16px;
-            padding-left: 0;
-            list-style: none;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        #rooms li {
-            padding: 6px 10px;
-            background: #f0f4ff;
-            border-radius: 4px;
-            font-weight: 500;
-            font-size: 14px;
-        }
-        .error {
-            color: #c00;
-        }
-    </style>
+  <meta charset="UTF-8" />
+  <title>Номера комнат за сегодня</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px 24px 28px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    }
+    h1 { margin-top: 0; font-size: 22px; }
+    #status {
+      margin-top: 8px;
+      font-size: 14px;
+      color: #555;
+    }
+    #rooms {
+      margin-top: 16px;
+      padding-left: 0;
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    #rooms li {
+      padding: 6px 10px;
+      background: #f0f4ff;
+      border-radius: 4px;
+      font-weight: 500;
+      font-size: 14px;
+    }
+    .error { color: #c00; }
+  </style>
 </head>
 <body>
 <div class="container">
-    <h1>Номера комнат за сегодня</h1>
-    <p>
-        Нажмите кнопку, чтобы получить номера комнат, которые сегодня были отправлены в беседу ВКонтакте.
-    </p>
-    <button id="loadBtn">Показать номера за сегодня</button>
+  <h1>Номера комнат за сегодня</h1>
+  <p>Страница автоматически обновляется при появлении новых сообщений в беседе.</p>
 
-    <div id="status"></div>
-    <ul id="rooms"></ul>
+  <div id="status">Загрузка текущего списка...</div>
+  <ul id="rooms"></ul>
 </div>
 
 <script>
-    // URL вашего бэкенда:
-    // замените на реальный, например:
-    // const BACKEND_URL = 'https://vk-rooms-backend.onrender.com/today-rooms';
-    const BACKEND_URL = 'https://minibarbot.onrender.com/today-rooms';
+  // Базовый URL вашего бэкенда:
+  // например: 'https://minibarbot-backend.onrender.com'
+  const API_BASE = 'https://minibarbot.onrender.com';
 
-    const loadBtn = document.getElementById('loadBtn');
-    const statusEl = document.getElementById('status');
-    const roomsEl = document.getElementById('rooms');
+  const TODAY_URL = API_BASE + '/today-rooms';
+  const STREAM_URL = API_BASE + '/stream';
 
-    loadBtn.addEventListener('click', async () => {
-        loadBtn.disabled = true;
-        statusEl.classList.remove('error');
-        statusEl.textContent = 'Запрашиваем данные...';
-        roomsEl.innerHTML = '';
+  const statusEl = document.getElementById('status');
+  const roomsEl = document.getElementById('rooms');
+  const knownRooms = new Set(); // чтобы не дублировать номера в списке
 
-        try {
-            const resp = await fetch(BACKEND_URL);
-            const data = await resp.json();
+  function renderRooms() {
+    const arr = Array.from(knownRooms).sort((a, b) => Number(a) - Number(b));
+    roomsEl.innerHTML = arr.map(n => `<li>${n}</li>`).join('');
+  }
 
-            if (!resp.ok) {
-                statusEl.textContent =
-                    'Ошибка сервера: ' + (data.message || data.error || resp.status);
-                statusEl.classList.add('error');
-                return;
-            }
+  async function loadToday() {
+    try {
+      const resp = await fetch(TODAY_URL);
+      const data = await resp.json();
+      if (!resp.ok) {
+        statusEl.textContent = 'Ошибка сервера: ' + (data.message || data.error || resp.status);
+        statusEl.classList.add('error');
+        return;
+      }
+      (data.rooms || []).forEach(r => knownRooms.add(r));
+      renderRooms();
+      statusEl.textContent = 'Ожидаем новые сообщения...';
+    } catch (e) {
+      statusEl.textContent = 'Ошибка при запросе к бэкенду: ' + e.message;
+      statusEl.classList.add('error');
+    }
+  }
 
-            const rooms = data.rooms || [];
-            if (rooms.length === 0) {
-                statusEl.textContent = 'За сегодня подходящих номеров не найдено.';
-                return;
-            }
+  function startStream() {
+    const es = new EventSource(STREAM_URL);
 
-            statusEl.textContent = 'Номера за сегодня:';
-            roomsEl.innerHTML = rooms.map(n => `<li>${n}</li>`).join('');
-        } catch (e) {
-            statusEl.textContent = 'Ошибка при запросе к бэкенду: ' + e.message;
-            statusEl.classList.add('error');
-        } finally {
-            loadBtn.disabled = false;
+    es.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data); // { date: 'YYYY-MM-DD', rooms: [...] }
+        const rooms = payload.rooms || [];
+        let changed = false;
+        rooms.forEach(r => {
+          if (!knownRooms.has(r)) {
+            knownRooms.add(r);
+            changed = true;
+          }
+        });
+        if (changed) {
+          renderRooms();
+          statusEl.textContent = 'Получено новое сообщение, список обновлён.';
         }
-    });
+      } catch (e) {
+        console.error('Ошибка обработки SSE:', e);
+      }
+    };
+
+    es.onerror = (err) => {
+      console.error('SSE error', err);
+      statusEl.textContent = 'Потеряно соединение с сервером. Обновите страницу позже.';
+      statusEl.classList.add('error');
+      // Браузер сам попробует переподключиться благодаря "retry" в ответе
+    };
+  }
+
+  // Стартуем: сначала получаем уже накопленные за сегодня, потом слушаем новые
+  loadToday().then(startStream);
 </script>
 </body>
 </html>
