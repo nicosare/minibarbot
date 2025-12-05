@@ -4,7 +4,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ID беседы
-const PEER_ID = 2000000244;
+const PEER_ID = 2000000001;
 
 // Данные для Callback API (задать в переменных окружения)
 const CALLBACK_SECRET = process.env.VK_CALLBACK_SECRET || '';      // секрет из настроек VK Callback
