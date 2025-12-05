@@ -69,42 +69,34 @@
   }
 
   async function loadToday() {
-    try {
-      const resp = await fetch(TODAY_URL);
-      const data = await resp.json();
+  try {
+    const resp = await fetch(TODAY_URL);
+    const data = await resp.json();
 
-      if (!resp.ok) {
-        statusEl.textContent = 'Ошибка сервера: ' + (data.message || data.error || resp.status);
-        statusEl.classList.add('error');
-        return;
-      }
-
-      const rooms = data.rooms || [];
-      let changed = false;
-
-      // добавляем новые номера
-      rooms.forEach(r => {
-        if (!knownRooms.has(r)) {
-          knownRooms.add(r);
-          changed = true;
-        }
-      });
-
-      if (changed || knownRooms.size === 0) {
-        renderRooms();
-      }
-
-      if (knownRooms.size === 0) {
-        statusEl.textContent = 'За сегодня пока нет номеров. Ждём новые сообщения...';
-      } else {
-        statusEl.textContent = 'Список обновляется каждые 3 секунды.';
-      }
-
-    } catch (e) {
-      statusEl.textContent = 'Ошибка при запросе к бэкенду: ' + e.message;
+    if (!resp.ok) {
+      statusEl.textContent = 'Ошибка сервера: ' + (data.message || data.error || resp.status);
       statusEl.classList.add('error');
+      return;
     }
+
+    const rooms = data.rooms || [];
+
+    // Полностью заменяем локальный набор номеров тем, что пришёл с сервера
+    knownRooms.clear();
+    rooms.forEach(r => knownRooms.add(r));
+    renderRooms();
+
+    if (knownRooms.size === 0) {
+      statusEl.textContent = 'За сегодня пока нет номеров. Ждём новые сообщения...';
+    } else {
+      statusEl.textContent = 'Список обновляется каждые 3 секунды.';
+    }
+
+  } catch (e) {
+    statusEl.textContent = 'Ошибка при запросе к бэкенду: ' + e.message;
+    statusEl.classList.add('error');
   }
+}
 
   // первый запрос сразу
   loadToday();
