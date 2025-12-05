@@ -1,19 +1,33 @@
 const express = require('express');
-const fs = require('fs');
-const path = require('path');
+const admin = require('firebase-admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ID беседы (проверьте, что это именно тот peer_id, который приходит в message_new)
+// ID вашей беседы (тот, что реально приходит в message_new)
 const PEER_ID = 2000000001;
 
-// Данные для Callback API (задать в переменных окружения на Render)
+// Данные для Callback API VK
 const CALLBACK_SECRET = process.env.VK_CALLBACK_SECRET || '';
 const CONFIRMATION_CODE = process.env.VK_CONFIRMATION_CODE || '';
 
-// Файл для сохранения данных
-const DATA_FILE = path.join(__dirname, 'rooms-data.json');
+// Инициализация Firebase Admin SDK
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+  console.error('FIREBASE_SERVICE_ACCOUNT is not set');
+  process.exit(1);
+}
+
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: process.env.FIREBASE_DATABASE_URL
+});
+
+const db = admin.database();
+
+// Ветка, куда бот пишет свои данные
+const VK_ROOMS_ROOT = 'vkRoomsByDate';
 
 // Список разрешённых номеров
 const ALLOWED_ROOMS = [
@@ -41,51 +55,9 @@ const ALLOWED_ROOMS = [
 
 const ALLOWED_SET = new Set(ALLOWED_ROOMS);
 
-// Хранилище номеров по датам: 'YYYY-MM-DD' -> Set('500','502',...)
-let roomsByDate = new Map();
-
-// SSE‑клиенты (если хотите вернуть realtime-обновление)
-const sseClients = new Set();
-
 app.use(express.json());
 
-// ===== Работа с файлом данных =====
-
-function loadData() {
-  try {
-    if (!fs.existsSync(DATA_FILE)) {
-      console.log('DATA_FILE not found, starting with empty storage');
-      return;
-    }
-    const raw = fs.readFileSync(DATA_FILE, 'utf8');
-    if (!raw) return;
-    const obj = JSON.parse(raw);
-    const map = new Map();
-    for (const [date, arr] of Object.entries(obj)) {
-      map.set(date, new Set(arr));
-    }
-    roomsByDate = map;
-    console.log('Data loaded from', DATA_FILE);
-  } catch (e) {
-    console.error('Failed to load data:', e.message);
-  }
-}
-
-function saveData() {
-  try {
-    const obj = {};
-    for (const [date, set] of roomsByDate.entries()) {
-      obj[date] = Array.from(set);
-    }
-    fs.writeFileSync(DATA_FILE, JSON.stringify(obj), 'utf8');
-    // console.log('Data saved');
-  } catch (e) {
-    console.error('Failed to save data:', e.message);
-  }
-}
-
-// ===== Вспомогательные функции дат =====
-
+// ===== утилиты дат =====
 function dateKeyFromUnix(tsSec) {
   const d = new Date(tsSec * 1000);
   const y = d.getFullYear();
@@ -102,23 +74,13 @@ function todayKey() {
   return `${y}-${m}-${day}`;
 }
 
-// ===== SSE (опционально) =====
-
-function broadcastRooms(payload) {
-  const data = 'data: ' + JSON.stringify(payload) + '\n\n';
-  for (const res of sseClients) {
-    res.write(data);
-  }
-}
-
-// ===== Обработка нового сообщения =====
-
-function handleNewMessage(msg) {
+// ===== обработка нового сообщения =====
+async function handleNewMessage(msg) {
   if (!msg) return;
-  // лог для отладки
+
   console.log('New message:', msg.peer_id, msg.text);
 
-  if (msg.peer_id !== PEER_ID) return; // игнорируем другие беседы
+  if (msg.peer_id !== PEER_ID) return; // только нужная беседа
 
   const text = msg.text || '';
   const matches = text.match(/\d{3,4}/g);
@@ -127,38 +89,30 @@ function handleNewMessage(msg) {
   const valid = matches.filter(num => ALLOWED_SET.has(num));
   if (valid.length === 0) return;
 
-  // Используем дату сообщения (можно заменить на todayKey(), если нужно строго "по серверу")
   const key = dateKeyFromUnix(msg.date || Math.floor(Date.now() / 1000));
 
-  let set = roomsByDate.get(key);
-  if (!set) {
-    set = new Set();
-    roomsByDate.set(key, set);
+  // Пишем только под vkRoomsByDate/<date>/<room>: true
+  const updates = {};
+  for (const room of valid) {
+    updates[`${VK_ROOMS_ROOT}/${key}/${room}`] = true;
   }
 
-  const newRooms = [];
-  for (const r of valid) {
-    if (!set.has(r)) {
-      set.add(r);
-      newRooms.push(r);
-    }
-  }
-
-  if (newRooms.length > 0) {
-    saveData(); // сохранили изменения на диск
-    broadcastRooms({ date: key, rooms: newRooms }); // если используется SSE
+  try {
+    await db.ref().update(updates);
+  } catch (e) {
+    console.error('Firebase update error:', e.message);
   }
 }
 
-// ===== Маршруты =====
+// ===== маршруты =====
 
 // health-check
 app.get('/', (req, res) => {
   res.send('OK');
 });
 
-// Callback API от VK
-app.post('/vk-callback', (req, res) => {
+// Callback API VK
+app.post('/vk-callback', async (req, res) => {
   const body = req.body;
 
   if (CALLBACK_SECRET && body.secret && body.secret !== CALLBACK_SECRET) {
@@ -171,41 +125,35 @@ app.post('/vk-callback', (req, res) => {
 
   if (body.type === 'message_new') {
     const msg = body.object && (body.object.message || body.object);
-    handleNewMessage(msg);
+    try {
+      await handleNewMessage(msg);
+    } catch (e) {
+      console.error('handleNewMessage failed:', e);
+    }
     return res.send('ok');
   }
 
   return res.send('ok');
 });
 
-// SSE‑поток (если будете снова использовать EventSource на фронте)
-app.get('/stream', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-
-  res.write('retry: 10000\n\n');
-  sseClients.add(res);
-
-  req.on('close', () => {
-    sseClients.delete(res);
-  });
-});
-
 // Номера за сегодня
-app.get('/today-rooms', (req, res) => {
+app.get('/today-rooms', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
   const key = todayKey();
-  const set = roomsByDate.get(key);
-  const rooms = set ? Array.from(set).sort((a, b) => Number(a) - Number(b)) : [];
-
-  res.json({ rooms });
+  try {
+    const snapshot = await db.ref(`${VK_ROOMS_ROOT}/${key}`).once('value');
+    const data = snapshot.val() || {};
+    const rooms = Object.keys(data).sort((a, b) => Number(a) - Number(b));
+    res.json({ rooms });
+  } catch (e) {
+    console.error('Firebase read error:', e.message);
+    res.status(500).json({
+      error: 'DB_ERROR',
+      message: e.message
+    });
+  }
 });
-
-// Загружаем данные при старте и запускаем сервер
-loadData();
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
