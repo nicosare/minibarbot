@@ -76,7 +76,9 @@ function broadcastRooms(payload) {
 
 // --------- обработка нового сообщения от VK ---------
 function handleNewMessage(msg) {
-  if (!msg || msg.peer_id !== PEER_ID) return; // только наша беседа
+  console.log('New message:', msg.peer_id, msg.text); // временно для отладки
+
+  if (!msg || msg.peer_id !== PEER_ID) return;
 
   const text = msg.text || '';
   const matches = text.match(/\d{3,4}/g);
@@ -85,7 +87,9 @@ function handleNewMessage(msg) {
   const valid = matches.filter(num => ALLOWED_SET.has(num));
   if (valid.length === 0) return;
 
-  const key = dateKeyFromUnix(msg.date || Math.floor(Date.now() / 1000));
+  // можно привязаться просто к текущему дню сервера,
+  // чтобы не зависеть от msg.date / часовых поясов:
+  const key = todayKey();
 
   let set = roomsByDate.get(key);
   if (!set) {
@@ -93,17 +97,8 @@ function handleNewMessage(msg) {
     roomsByDate.set(key, set);
   }
 
-  const newRooms = [];
   for (const r of valid) {
-    if (!set.has(r)) {
-      set.add(r);
-      newRooms.push(r);
-    }
-  }
-
-  // если появились новые (неповторяющиеся) номера — рассылаем на сайт
-  if (newRooms.length > 0) {
-    broadcastRooms({ date: key, rooms: newRooms });
+    set.add(r);
   }
 }
 
