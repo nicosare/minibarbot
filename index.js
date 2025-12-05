@@ -4,7 +4,7 @@ const admin = require('firebase-admin');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ID вашей беседы (тот, что реально приходит в message_new)
+// ID вашей беседы (проверьте по логам message_new)
 const PEER_ID = 2000000001;
 
 // Данные для Callback API VK
@@ -17,6 +17,11 @@ if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
   process.exit(1);
 }
 
+if (!process.env.FIREBASE_DATABASE_URL) {
+  console.error('FIREBASE_DATABASE_URL is not set');
+  process.exit(1);
+}
+
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
 admin.initializeApp({
@@ -26,8 +31,11 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// Ветка, куда бот пишет свои данные
+// Ветка, куда бот пишет свои данные, чтобы не трогать существующие структуры
 const VK_ROOMS_ROOT = 'vkRoomsByDate';
+
+// Екатеринбург: UTC+5 → 5 * 60 минут
+const TZ_OFFSET_MINUTES = 5 * 60;
 
 // Список разрешённых номеров
 const ALLOWED_ROOMS = [
@@ -57,24 +65,42 @@ const ALLOWED_SET = new Set(ALLOWED_ROOMS);
 
 app.use(express.json());
 
-// ===== утилиты дат =====
+// ===== утилиты дат/времени (UTC+5, Екатеринбург) =====
+
+function localDateFromUnix(tsSec) {
+  const offsetMs = TZ_OFFSET_MINUTES * 60 * 1000;
+  return new Date(tsSec * 1000 + offsetMs);
+}
+
+// ключ даты YYYY-MM-DD по времени Екатеринбурга
 function dateKeyFromUnix(tsSec) {
-  const d = new Date(tsSec * 1000);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const d = localDateFromUnix(tsSec);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
 
+// "Сегодня" по Екатеринбургу
 function todayKey() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
+  const offsetMs = TZ_OFFSET_MINUTES * 60 * 1000;
+  const d = new Date(Date.now() + offsetMs);
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
+}
+
+// формат времени HH:MM по Екатеринбургу
+function timeStringFromUnix(tsSec) {
+  const d = localDateFromUnix(tsSec);
+  const h = String(d.getUTCHours()).padStart(2, '0');
+  const m = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${h}:${m}`;
 }
 
 // ===== обработка нового сообщения =====
+
 async function handleNewMessage(msg) {
   if (!msg) return;
 
@@ -89,12 +115,13 @@ async function handleNewMessage(msg) {
   const valid = matches.filter(num => ALLOWED_SET.has(num));
   if (valid.length === 0) return;
 
-  const key = dateKeyFromUnix(msg.date || Math.floor(Date.now() / 1000));
+  const msgTs = msg.date || Math.floor(Date.now() / 1000);
+  const key = dateKeyFromUnix(msgTs);
 
-  // Пишем только под vkRoomsByDate/<date>/<room>: true
+  // Пишем под vkRoomsByDate/<date>/<room> = { ts: <unix> }
   const updates = {};
   for (const room of valid) {
-    updates[`${VK_ROOMS_ROOT}/${key}/${room}`] = true;
+    updates[`${VK_ROOMS_ROOT}/${key}/${room}`] = { ts: msgTs };
   }
 
   try {
@@ -136,7 +163,7 @@ app.post('/vk-callback', async (req, res) => {
   return res.send('ok');
 });
 
-// Номера за сегодня
+// Номера за сегодня с временем
 app.get('/today-rooms', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -144,7 +171,16 @@ app.get('/today-rooms', async (req, res) => {
   try {
     const snapshot = await db.ref(`${VK_ROOMS_ROOT}/${key}`).once('value');
     const data = snapshot.val() || {};
-    const rooms = Object.keys(data).sort((a, b) => Number(a) - Number(b));
+
+    // data: { "1425": {ts: 1764936731}, "1502": {ts: ...}, ... }
+    const rooms = Object.entries(data)
+      .filter(([room, obj]) => obj && typeof obj.ts === 'number')
+      .map(([room, obj]) => ({
+        room,
+        time: timeStringFromUnix(obj.ts)
+      }))
+      .sort((a, b) => Number(a.room) - Number(b.room));
+
     res.json({ rooms });
   } catch (e) {
     console.error('Firebase read error:', e.message);
