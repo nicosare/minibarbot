@@ -31,14 +31,26 @@
       list-style: none;
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 10px;
     }
-    #rooms li {
-      padding: 6px 10px;
+    .room-card {
+      min-width: 80px;
+      padding: 8px 10px;
       background: #f0f4ff;
-      border-radius: 4px;
-      font-weight: 500;
-      font-size: 14px;
+      border-radius: 6px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    .room-number {
+      font-weight: 600;
+      font-size: 16px;
+      margin-bottom: 4px;
+    }
+    .room-time {
+      font-size: 13px;
+      color: #555;
     }
     .error { color: #c00; }
   </style>
@@ -46,7 +58,7 @@
 <body>
 <div class="container">
   <h1>Номера комнат за сегодня</h1>
-  <p>Страница регулярно обновляет список по входящим сообщениям в беседе.</p>
+  <p>Список автоматически обновляется каждые несколько секунд. Время указано по Екатеринбургу (UTC+5).</p>
 
   <div id="status">Загрузка текущего списка...</div>
   <ul id="rooms"></ul>
@@ -54,53 +66,60 @@
 
 <script>
   // Базовый URL вашего бэкенда:
-  // например: 'https://minibarbot-backend.onrender.com'
-  const API_BASE = 'https://minibarbot.onrender.com';
-
+  const API_BASE = 'https://minibarbot.onrender.com'; // ← при необходимости замените
   const TODAY_URL = API_BASE + '/today-rooms';
 
   const statusEl = document.getElementById('status');
   const roomsEl = document.getElementById('rooms');
-  const knownRooms = new Set(); // текущий набор номеров
+
+  let currentRooms = [];
 
   function renderRooms() {
-    const arr = Array.from(knownRooms).sort((a, b) => Number(a) - Number(b));
-    roomsEl.innerHTML = arr.map(n => `<li>${n}</li>`).join('');
+    if (!currentRooms.length) {
+      roomsEl.innerHTML = '';
+      return;
+    }
+    roomsEl.innerHTML = currentRooms
+      .map(r => `
+        <li class="room-card">
+          <div class="room-number">${r.room}</div>
+          <div class="room-time">${r.time}</div>
+        </li>
+      `)
+      .join('');
   }
 
   async function loadToday() {
-  try {
-    const resp = await fetch(TODAY_URL);
-    const data = await resp.json();
+    try {
+      const resp = await fetch(TODAY_URL);
+      const data = await resp.json();
 
-    if (!resp.ok) {
-      statusEl.textContent = 'Ошибка сервера: ' + (data.message || data.error || resp.status);
+      if (!resp.ok) {
+        statusEl.textContent = 'Ошибка сервера: ' + (data.message || data.error || resp.status);
+        statusEl.classList.add('error');
+        return;
+      }
+
+      const rooms = data.rooms || [];
+      // Полностью заменяем список
+      currentRooms = rooms;
+      renderRooms();
+
+      if (!rooms.length) {
+        statusEl.textContent = 'За сегодня пока нет номеров. Ждём новые сообщения...';
+      } else {
+        statusEl.textContent = 'Список обновляется каждые 3 секунды.';
+      }
+
+    } catch (e) {
+      statusEl.textContent = 'Ошибка при запросе к бэкенду: ' + e.message;
       statusEl.classList.add('error');
-      return;
     }
-
-    const rooms = data.rooms || [];
-
-    // Полностью заменяем локальный набор номеров тем, что пришёл с сервера
-    knownRooms.clear();
-    rooms.forEach(r => knownRooms.add(r));
-    renderRooms();
-
-    if (knownRooms.size === 0) {
-      statusEl.textContent = 'За сегодня пока нет номеров. Ждём новые сообщения...';
-    } else {
-      statusEl.textContent = 'Список обновляется каждые 3 секунды.';
-    }
-
-  } catch (e) {
-    statusEl.textContent = 'Ошибка при запросе к бэкенду: ' + e.message;
-    statusEl.classList.add('error');
   }
-}
 
-  // первый запрос сразу
+  // Первый запрос сразу
   loadToday();
-  // затем — каждые 3 секунды
+  // Затем — каждые 3 секунды
   setInterval(loadToday, 3000);
 </script>
 </body>
