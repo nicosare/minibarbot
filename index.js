@@ -1,14 +1,19 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ID беседы
+// ID беседы (проверьте, что это именно тот peer_id, который приходит в message_new)
 const PEER_ID = 2000000001;
 
-// Данные для Callback API (задать в переменных окружения)
-const CALLBACK_SECRET = process.env.VK_CALLBACK_SECRET || '';      // секрет из настроек VK Callback
-const CONFIRMATION_CODE = process.env.VK_CONFIRMATION_CODE || ''; // код подтверждения из настроек VK Callback
+// Данные для Callback API (задать в переменных окружения на Render)
+const CALLBACK_SECRET = process.env.VK_CALLBACK_SECRET || '';
+const CONFIRMATION_CODE = process.env.VK_CONFIRMATION_CODE || '';
+
+// Файл для сохранения данных
+const DATA_FILE = path.join(__dirname, 'rooms-data.json');
 
 // Список разрешённых номеров
 const ALLOWED_ROOMS = [
@@ -37,19 +42,50 @@ const ALLOWED_ROOMS = [
 const ALLOWED_SET = new Set(ALLOWED_ROOMS);
 
 // Хранилище номеров по датам: 'YYYY-MM-DD' -> Set('500','502',...)
-const roomsByDate = new Map();
+let roomsByDate = new Map();
 
-// Подписчики SSE
+// SSE‑клиенты (если хотите вернуть realtime-обновление)
 const sseClients = new Set();
 
 app.use(express.json());
 
-// health-check
-app.get('/', (req, res) => {
-  res.send('OK');
-});
+// ===== Работа с файлом данных =====
 
-// --------- утилиты дат ---------
+function loadData() {
+  try {
+    if (!fs.existsSync(DATA_FILE)) {
+      console.log('DATA_FILE not found, starting with empty storage');
+      return;
+    }
+    const raw = fs.readFileSync(DATA_FILE, 'utf8');
+    if (!raw) return;
+    const obj = JSON.parse(raw);
+    const map = new Map();
+    for (const [date, arr] of Object.entries(obj)) {
+      map.set(date, new Set(arr));
+    }
+    roomsByDate = map;
+    console.log('Data loaded from', DATA_FILE);
+  } catch (e) {
+    console.error('Failed to load data:', e.message);
+  }
+}
+
+function saveData() {
+  try {
+    const obj = {};
+    for (const [date, set] of roomsByDate.entries()) {
+      obj[date] = Array.from(set);
+    }
+    fs.writeFileSync(DATA_FILE, JSON.stringify(obj), 'utf8');
+    // console.log('Data saved');
+  } catch (e) {
+    console.error('Failed to save data:', e.message);
+  }
+}
+
+// ===== Вспомогательные функции дат =====
+
 function dateKeyFromUnix(tsSec) {
   const d = new Date(tsSec * 1000);
   const y = d.getFullYear();
@@ -66,7 +102,8 @@ function todayKey() {
   return `${y}-${m}-${day}`;
 }
 
-// --------- отправка по SSE всем подключённым ---------
+// ===== SSE (опционально) =====
+
 function broadcastRooms(payload) {
   const data = 'data: ' + JSON.stringify(payload) + '\n\n';
   for (const res of sseClients) {
@@ -74,11 +111,14 @@ function broadcastRooms(payload) {
   }
 }
 
-// --------- обработка нового сообщения от VK ---------
-function handleNewMessage(msg) {
-  console.log('New message:', msg.peer_id, msg.text); // временно для отладки
+// ===== Обработка нового сообщения =====
 
-  if (!msg || msg.peer_id !== PEER_ID) return;
+function handleNewMessage(msg) {
+  if (!msg) return;
+  // лог для отладки
+  console.log('New message:', msg.peer_id, msg.text);
+
+  if (msg.peer_id !== PEER_ID) return; // игнорируем другие беседы
 
   const text = msg.text || '';
   const matches = text.match(/\d{3,4}/g);
@@ -87,9 +127,8 @@ function handleNewMessage(msg) {
   const valid = matches.filter(num => ALLOWED_SET.has(num));
   if (valid.length === 0) return;
 
-  // можно привязаться просто к текущему дню сервера,
-  // чтобы не зависеть от msg.date / часовых поясов:
-  const key = todayKey();
+  // Используем дату сообщения (можно заменить на todayKey(), если нужно строго "по серверу")
+  const key = dateKeyFromUnix(msg.date || Math.floor(Date.now() / 1000));
 
   let set = roomsByDate.get(key);
   if (!set) {
@@ -97,22 +136,36 @@ function handleNewMessage(msg) {
     roomsByDate.set(key, set);
   }
 
+  const newRooms = [];
   for (const r of valid) {
-    set.add(r);
+    if (!set.has(r)) {
+      set.add(r);
+      newRooms.push(r);
+    }
+  }
+
+  if (newRooms.length > 0) {
+    saveData(); // сохранили изменения на диск
+    broadcastRooms({ date: key, rooms: newRooms }); // если используется SSE
   }
 }
 
-// --------- Callback API от VK ---------
+// ===== Маршруты =====
+
+// health-check
+app.get('/', (req, res) => {
+  res.send('OK');
+});
+
+// Callback API от VK
 app.post('/vk-callback', (req, res) => {
   const body = req.body;
 
-  // Проверка секрета
   if (CALLBACK_SECRET && body.secret && body.secret !== CALLBACK_SECRET) {
     return res.status(403).send('secret mismatch');
   }
 
   if (body.type === 'confirmation') {
-    // VK ждёт от нас строку подтверждения
     return res.send(CONFIRMATION_CODE);
   }
 
@@ -122,20 +175,17 @@ app.post('/vk-callback', (req, res) => {
     return res.send('ok');
   }
 
-  // прочие события тоже подтверждаем
   return res.send('ok');
 });
 
-// --------- SSE‑поток для фронтенда ---------
+// SSE‑поток (если будете снова использовать EventSource на фронте)
 app.get('/stream', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('Access-Control-Allow-Origin', '*');
 
-  // Можно настроить повторное подключение клиента
   res.write('retry: 10000\n\n');
-
   sseClients.add(res);
 
   req.on('close', () => {
@@ -143,15 +193,19 @@ app.get('/stream', (req, res) => {
   });
 });
 
-// --------- Номера за сегодня (по запросу) ---------
+// Номера за сегодня
 app.get('/today-rooms', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
   const key = todayKey();
   const set = roomsByDate.get(key);
   const rooms = set ? Array.from(set).sort((a, b) => Number(a) - Number(b)) : [];
+
   res.json({ rooms });
 });
+
+// Загружаем данные при старте и запускаем сервер
+loadData();
 
 app.listen(PORT, () => {
   console.log(`Server listening on port ${PORT}`);
