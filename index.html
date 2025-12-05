@@ -77,7 +77,8 @@
 <script>
     // ===== НАСТРОЙКИ =====
 
-    // ВАШ токен бота ВК (НЕ выкладывать в публичный репозиторий!)
+    // НОВЫЙ токен бота ВК (опасно хранить в GitHub Pages!).
+    // Для теста подставьте сюда, но публично лучше НЕ выкладывать.
     const VK_TOKEN = 'vk1.a.nRSWzUxP2yhSjs93Nihcvc7hsAR8XF7ZmAKtVaTH-JE4x9fgmGwWOP52RctD-o40mxK4nuMQfCNB8y8deI8WNcFrgBBxYkQ8KjNYcGU5crYZb5gCDhE8QW4byt5BX0DlcYgJQtaPDSa_LSYW1Hi6Rc0x6kzYQalGhUx5Fi1P0wJPRzUUUoub6VLq3Bk3BzqMgruvvP_0SdytnrgMFaDx1A';
 
     // peer_id беседы
@@ -112,24 +113,71 @@
 
     const ALLOWED_SET = new Set(ALLOWED_ROOMS);
 
-    // ===== ЛОГИКА ПОЛУЧЕНИЯ СООБЩЕНИЙ =====
-
     const loadBtn = document.getElementById('loadBtn');
     const statusEl = document.getElementById('status');
     const roomsEl = document.getElementById('rooms');
 
-    loadBtn.addEventListener('click', () => {
-        getTodayRooms().catch(err => {
+    // ===== JSONP-обёртка для VK API (обход CORS) =====
+    function vkCall(method, params) {
+        return new Promise((resolve, reject) => {
+            const callbackName = 'vkCallback_' + Math.random().toString(36).slice(2);
+            params = Object.assign({}, params, {
+                access_token: VK_TOKEN,
+                v: API_VERSION,
+                callback: callbackName
+            });
+
+            const qs = new URLSearchParams(params).toString();
+            const script = document.createElement('script');
+            script.src = 'https://api.vk.com/method/' + method + '?' + qs;
+
+            const timeoutId = setTimeout(() => {
+                cleanup();
+                reject(new Error('Таймаут запроса к VK API'));
+            }, 15000);
+
+            function cleanup() {
+                clearTimeout(timeoutId);
+                delete window[callbackName];
+                if (script.parentNode) {
+                    script.parentNode.removeChild(script);
+                }
+            }
+
+            window[callbackName] = function (data) {
+                cleanup();
+                if (data.error) {
+                    reject(new Error('Ошибка VK API: ' + data.error.error_msg));
+                } else {
+                    resolve(data.response);
+                }
+            };
+
+            script.onerror = function () {
+                cleanup();
+                reject(new Error('Сетевая ошибка при запросе к VK API'));
+            };
+
+            document.body.appendChild(script);
+        });
+    }
+
+    // ===== Основная логика =====
+
+    loadBtn.addEventListener('click', async () => {
+        try {
+            await getTodayRooms();
+        } catch (err) {
             console.error(err);
-            statusEl.textContent = 'Произошла ошибка при загрузке данных.';
+            statusEl.textContent = err && err.message ? err.message : 'Произошла ошибка при загрузке данных.';
             statusEl.classList.add('error');
             loadBtn.disabled = false;
-        });
+        }
     });
 
     async function getTodayRooms() {
         if (!VK_TOKEN || VK_TOKEN === 'vk1.a.nRSWzUxP2yhSjs93Nihcvc7hsAR8XF7ZmAKtVaTH-JE4x9fgmGwWOP52RctD-o40mxK4nuMQfCNB8y8deI8WNcFrgBBxYkQ8KjNYcGU5crYZb5gCDhE8QW4byt5BX0DlcYgJQtaPDSa_LSYW1Hi6Rc0x6kzYQalGhUx5Fi1P0wJPRzUUUoub6VLq3Bk3BzqMgruvvP_0SdytnrgMFaDx1A') {
-            statusEl.textContent = 'Сначала укажите реальный токен бота в коде (VK_TOKEN).';
+            statusEl.textContent = 'Сначала укажите реальный токен бота в константе VK_TOKEN.';
             statusEl.classList.add('error');
             return;
         }
@@ -139,7 +187,7 @@
         statusEl.textContent = 'Загрузка сообщений из беседы...';
         roomsEl.innerHTML = '';
 
-        // начало сегодняшнего дня по времени браузера пользователя
+        // Начало сегодняшнего дня (по времени вашего браузера)
         const now = new Date();
         const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
         const startTs = Math.floor(startOfDay.getTime() / 1000);
@@ -152,39 +200,25 @@
         let totalCount = null;
 
         while (more) {
-            const url = new URL('https://api.vk.com/method/messages.getHistory');
-            url.searchParams.set('peer_id', PEER_ID);
-            url.searchParams.set('count', batchSize);
-            url.searchParams.set('offset', offset);
-            url.searchParams.set('rev', 0); // 0 — с конца (новые → старые)
-            url.searchParams.set('access_token', VK_TOKEN);
-            url.searchParams.set('v', API_VERSION);
+            const resp = await vkCall('messages.getHistory', {
+                peer_id: PEER_ID,
+                count: batchSize,
+                offset: offset,
+                rev: 0 // 0 — с конца (новые → старые)
+            });
 
-            const res = await fetch(url.toString());
-            const data = await res.json();
-
-            if (data.error) {
-                statusEl.textContent = 'Ошибка VK API: ' + data.error.error_msg;
-                statusEl.classList.add('error');
-                loadBtn.disabled = false;
-                return;
-            }
-
-            const resp = data.response;
             const items = resp.items || [];
             if (totalCount === null) totalCount = resp.count || 0;
 
             if (items.length === 0) break;
 
             for (const msg of items) {
-                // как только упёрлись в сообщения до начала сегодняшнего дня — выходим
                 if (msg.date < startTs) {
                     more = false;
                     break;
                 }
 
                 const text = msg.text || '';
-                // Ищем в тексте все группы из 3–4 цифр
                 const matches = text.match(/\d{3,4}/g);
                 if (matches) {
                     for (const num of matches) {
@@ -206,10 +240,8 @@
         }
 
         const sorted = Array.from(foundRooms).sort((a, b) => Number(a) - Number(b));
-
         statusEl.textContent = 'Номера за сегодня:';
         roomsEl.innerHTML = sorted.map(n => `<li>${n}</li>`).join('');
-
         loadBtn.disabled = false;
     }
 </script>
