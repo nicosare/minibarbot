@@ -46,7 +46,7 @@
 <body>
 <div class="container">
   <h1>Номера комнат за сегодня</h1>
-  <p>Страница автоматически обновляется при появлении новых сообщений в беседе.</p>
+  <p>Страница регулярно обновляет список по входящим сообщениям в беседе.</p>
 
   <div id="status">Загрузка текущего списка...</div>
   <ul id="rooms"></ul>
@@ -58,11 +58,10 @@
   const API_BASE = 'https://minibarbot.onrender.com';
 
   const TODAY_URL = API_BASE + '/today-rooms';
-  const STREAM_URL = API_BASE + '/stream';
 
   const statusEl = document.getElementById('status');
   const roomsEl = document.getElementById('rooms');
-  const knownRooms = new Set(); // чтобы не дублировать номера в списке
+  const knownRooms = new Set(); // текущий набор номеров
 
   function renderRooms() {
     const arr = Array.from(knownRooms).sort((a, b) => Number(a) - Number(b));
@@ -73,53 +72,44 @@
     try {
       const resp = await fetch(TODAY_URL);
       const data = await resp.json();
+
       if (!resp.ok) {
         statusEl.textContent = 'Ошибка сервера: ' + (data.message || data.error || resp.status);
         statusEl.classList.add('error');
         return;
       }
-      (data.rooms || []).forEach(r => knownRooms.add(r));
-      renderRooms();
-      statusEl.textContent = 'Ожидаем новые сообщения...';
+
+      const rooms = data.rooms || [];
+      let changed = false;
+
+      // добавляем новые номера
+      rooms.forEach(r => {
+        if (!knownRooms.has(r)) {
+          knownRooms.add(r);
+          changed = true;
+        }
+      });
+
+      if (changed || knownRooms.size === 0) {
+        renderRooms();
+      }
+
+      if (knownRooms.size === 0) {
+        statusEl.textContent = 'За сегодня пока нет номеров. Ждём новые сообщения...';
+      } else {
+        statusEl.textContent = 'Список обновляется каждые 3 секунды.';
+      }
+
     } catch (e) {
       statusEl.textContent = 'Ошибка при запросе к бэкенду: ' + e.message;
       statusEl.classList.add('error');
     }
   }
 
-  function startStream() {
-    const es = new EventSource(STREAM_URL);
-
-    es.onmessage = (event) => {
-      try {
-        const payload = JSON.parse(event.data); // { date: 'YYYY-MM-DD', rooms: [...] }
-        const rooms = payload.rooms || [];
-        let changed = false;
-        rooms.forEach(r => {
-          if (!knownRooms.has(r)) {
-            knownRooms.add(r);
-            changed = true;
-          }
-        });
-        if (changed) {
-          renderRooms();
-          statusEl.textContent = 'Получено новое сообщение, список обновлён.';
-        }
-      } catch (e) {
-        console.error('Ошибка обработки SSE:', e);
-      }
-    };
-
-    es.onerror = (err) => {
-      console.error('SSE error', err);
-      statusEl.textContent = 'Потеряно соединение с сервером. Обновите страницу позже.';
-      statusEl.classList.add('error');
-      // Браузер сам попробует переподключиться благодаря "retry" в ответе
-    };
-  }
-
-  // Стартуем: сначала получаем уже накопленные за сегодня, потом слушаем новые
-  loadToday().then(startStream);
+  // первый запрос сразу
+  loadToday();
+  // затем — каждые 3 секунды
+  setInterval(loadToday, 3000);
 </script>
 </body>
 </html>
