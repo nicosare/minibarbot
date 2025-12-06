@@ -169,18 +169,19 @@ async function startLongPoll() {
       let tsCur = ts;
 
       while (true) {
-        const lpURL =
-          'https://' +
-          server +
-          '?' +
-          new URLSearchParams({
-            act: 'a_check',
-            key,
-            ts: String(tsCur),
-            wait: '25',
-            mode: '2',
-            version: '3'
-          }).toString();
+        const baseUrl = server.startsWith('http') ? server : 'https://' + server;
+
+const lpURL =
+  baseUrl +
+  '?' +
+  new URLSearchParams({
+    act: 'a_check',
+    key,
+    ts: String(tsCur),
+    wait: '25',
+    mode: '2',
+    version: '3'
+  }).toString();
 
         const res = await fetch(lpURL);
         const data = await res.json();
