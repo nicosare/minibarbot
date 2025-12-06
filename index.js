@@ -202,8 +202,17 @@ const lpURL =
         const updates = data.updates || [];
 
 // ЛОГИРУЕМ ВСЕ ОБНОВЛЕНИЯ ДЛЯ ОТЛАДКИ
+const updates = data.updates || [];
+
 for (const upd of updates) {
-  console.log('VK update:', JSON.stringify(upd));
+  // Логируем абсолютно все апдейты как есть
+  console.log('VK update RAW:', JSON.stringify(upd));
+
+  // Дополнительно выведем только тип и peer_id, если есть
+  if (upd.object && (upd.object.message || upd.object)) {
+    const m = upd.object.message || upd.object;
+    console.log('VK update TYPE:', upd.type, 'PEER_ID:', m.peer_id, 'TEXT:', m.text);
+  }
 
   if (upd.type === 'message_new' || upd.type === 'message_edit') {
     const msg = upd.object && (upd.object.message || upd.object);
