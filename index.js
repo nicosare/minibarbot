@@ -198,9 +198,7 @@ const lpURL =
         }
 
         tsCur = data.ts;
-
-        const updates = data.updates || [];
-
+        
 // ЛОГИРУЕМ ВСЕ ОБНОВЛЕНИЯ ДЛЯ ОТЛАДКИ
 const updates = data.updates || [];
 
