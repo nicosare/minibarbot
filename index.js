@@ -1,24 +1,28 @@
 const express = require('express');
 const admin = require('firebase-admin');
+const fetch = require('node-fetch');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ID вашей беседы (тот, что реально приходит в message_new / message_edit)
+// === VK настройки ===
+const VK_BOT_TOKEN = process.env.VK_BOT_TOKEN;
+const VK_GROUP_ID = Number(process.env.VK_GROUP_ID || '234416204');
+// peer_id вашей беседы
 const PEER_ID = 2000000001;
 
-// Данные для Callback API VK
-const CALLBACK_SECRET = process.env.VK_CALLBACK_SECRET || '';
-const CONFIRMATION_CODE = process.env.VK_CONFIRMATION_CODE || '';
-
-// Инициализация Firebase Admin SDK
-if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
-  console.error('FIREBASE_SERVICE_ACCOUNT is not set');
+if (!VK_BOT_TOKEN) {
+  console.error('VK_BOT_TOKEN не задан. Укажите токен бота в переменной окружения.');
   process.exit(1);
 }
 
+// === Firebase ===
+if (!process.env.FIREBASE_SERVICE_ACCOUNT) {
+  console.error('FIREBASE_SERVICE_ACCOUNT не задан.');
+  process.exit(1);
+}
 if (!process.env.FIREBASE_DATABASE_URL) {
-  console.error('FIREBASE_DATABASE_URL is not set');
+  console.error('FIREBASE_DATABASE_URL не задан.');
   process.exit(1);
 }
 
@@ -31,19 +35,15 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// Ветка, куда бот пишет свои данные, чтобы не трогать существующие структуры
-// Структура:
-// vkRoomsByDate/
-//   YYYY-MM-DD/
-//     <conversation_message_id>/
-//       ts: <unix>
-//       rooms: { "<room>": true, ... }
+// Ветка, куда пишем, чтобы не трогать ваши данные
+// vkRoomsByDate/<YYYY-MM-DD>/<conversation_message_id>:
+//   { ts: <unix>, rooms: { "<room>": true, ... } }
 const VK_ROOMS_ROOT = 'vkRoomsByDate';
 
 // Екатеринбург: UTC+5 → 5 * 60 минут
 const TZ_OFFSET_MINUTES = 5 * 60;
 
-// Список разрешённых номеров
+// Список допустимых номеров
 const ALLOWED_ROOMS = [
   '500', '502', '504', '506', '508', '509', '510', '512', '514', '516', '518', '520', '522', '524', '526', '528',
   '530', '532', '534', '600', '602', '604', '606', '608', '609', '610', '612', '614', '616', '618', '620', '622',
@@ -69,16 +69,12 @@ const ALLOWED_ROOMS = [
 
 const ALLOWED_SET = new Set(ALLOWED_ROOMS);
 
-app.use(express.json());
-
-// ===== утилиты дат/времени (UTC+5, Екатеринбург) =====
-
+// === утилиты времени (UTC+5, Екатеринбург) ===
 function localDateFromUnix(tsSec) {
   const offsetMs = TZ_OFFSET_MINUTES * 60 * 1000;
   return new Date(tsSec * 1000 + offsetMs);
 }
 
-// ключ даты YYYY-MM-DD по времени Екатеринбурга
 function dateKeyFromUnix(tsSec) {
   const d = localDateFromUnix(tsSec);
   const y = d.getUTCFullYear();
@@ -87,7 +83,6 @@ function dateKeyFromUnix(tsSec) {
   return `${y}-${m}-${day}`;
 }
 
-// "Сегодня" по Екатеринбургу
 function todayKey() {
   const offsetMs = TZ_OFFSET_MINUTES * 60 * 1000;
   const d = new Date(Date.now() + offsetMs);
@@ -97,7 +92,6 @@ function todayKey() {
   return `${y}-${m}-${day}`;
 }
 
-// формат времени HH:MM по Екатеринбургу
 function timeStringFromUnix(tsSec) {
   const d = localDateFromUnix(tsSec);
   const h = String(d.getUTCHours()).padStart(2, '0');
@@ -105,31 +99,28 @@ function timeStringFromUnix(tsSec) {
   return `${h}:${m}`;
 }
 
-// ===== общая обработка сообщения (и нового, и отредактированного) =====
-
+// === обработка (нового или отредактированного) сообщения ===
 async function upsertMessageRooms(msg) {
   if (!msg) return;
 
   console.log('Message:', msg.peer_id, msg.conversation_message_id, msg.text);
 
-  if (msg.peer_id !== PEER_ID) return; // только нужная беседа
+  if (msg.peer_id !== PEER_ID) return;
 
   const text = msg.text || '';
   const matches = text.match(/\d{3,4}/g) || [];
-
-  // фильтруем только номера из вашего списка
   const valid = matches.filter(num => ALLOWED_SET.has(num));
+
   const msgTs = msg.date || Math.floor(Date.now() / 1000);
   const key = dateKeyFromUnix(msgTs);
 
-  // conversation_message_id — уникальный ID сообщения в беседе
   const convId = msg.conversation_message_id || msg.id;
   if (!convId) return;
 
   const ref = db.ref(`${VK_ROOMS_ROOT}/${key}/${convId}`);
 
   if (valid.length === 0) {
-    // В отредактированном сообщении больше нет номеров → удаляем запись
+    // В сообщении больше нет номеров → удаляем запись
     await ref.remove();
     return;
   }
@@ -139,44 +130,102 @@ async function upsertMessageRooms(msg) {
     roomsObj[room] = true;
   }
 
-  // Перезаписываем запись для этого сообщения:
-  // если номер был 1425, а стал 1502 — rooms заменится, 1425 пропадёт, 1502 добавится.
+  // Полностью перезаписываем номера для этого сообщения
   await ref.set({
     ts: msgTs,
     rooms: roomsObj
   });
 }
 
-// ===== маршруты =====
+// === Bots Long Poll API ===
+
+async function getLongPollServer() {
+  const params = new URLSearchParams({
+    group_id: VK_GROUP_ID.toString(),
+    access_token: VK_BOT_TOKEN,
+    v: '5.199'
+  });
+
+  const res = await fetch(
+    'https://api.vk.com/method/groups.getLongPollServer?' + params.toString()
+  );
+  const data = await res.json();
+
+  if (data.error) {
+    throw new Error('VK groups.getLongPollServer error: ' + data.error.error_msg);
+  }
+
+  return data.response; // { server, key, ts }
+}
+
+async function startLongPoll() {
+  console.log('Starting VK Long Poll...');
+
+  while (true) {
+    try {
+      const { server, key, ts } = await getLongPollServer();
+      console.log('Long Poll server obtained');
+
+      let tsCur = ts;
+
+      while (true) {
+        const lpURL =
+          'https://' +
+          server +
+          '?' +
+          new URLSearchParams({
+            act: 'a_check',
+            key,
+            ts: String(tsCur),
+            wait: '25',
+            mode: '2',
+            version: '3'
+          }).toString();
+
+        const res = await fetch(lpURL);
+        const data = await res.json();
+
+        if (data.failed) {
+          // см. доку VK Bots Long Poll API
+          if (data.failed === 1 && data.ts) {
+            tsCur = data.ts;
+            continue;
+          }
+          // 2 или 3 → нужно заново получить ключ/сервер
+          console.warn('Long Poll failed, need new server/key:', data);
+          break;
+        }
+
+        tsCur = data.ts;
+
+        const updates = data.updates || [];
+        for (const upd of updates) {
+          if (upd.type === 'message_new' || upd.type === 'message_edit') {
+            const msg = upd.object && (upd.object.message || upd.object);
+            try {
+              await upsertMessageRooms(msg);
+            } catch (e) {
+              console.error('upsertMessageRooms error:', e);
+            }
+          }
+        }
+      }
+
+      // Цикл по серверу вышел → запрашиваем новый сервер
+      console.log('Restarting Long Poll server...');
+    } catch (e) {
+      console.error('Long Poll error:', e.message);
+      // подождём и попробуем снова
+      await new Promise(resolve => setTimeout(resolve, 5000));
+    }
+  }
+}
+
+// === HTTP маршруты ===
 
 // health-check
 app.get('/', (req, res) => {
   res.send('OK');
-});
-
-// Callback API VK
-app.post('/vk-callback', async (req, res) => {
-  const body = req.body;
-
-  if (CALLBACK_SECRET && body.secret && body.secret !== CALLBACK_SECRET) {
-    return res.status(403).send('secret mismatch');
-  }
-
-  if (body.type === 'confirmation') {
-    return res.send(CONFIRMATION_CODE);
-  }
-
-  if (body.type === 'message_new' || body.type === 'message_edit') {
-    const msg = body.object && (body.object.message || body.object);
-    try {
-      await upsertMessageRooms(msg);
-    } catch (e) {
-      console.error('upsertMessageRooms failed:', e);
-    }
-    return res.send('ok');
-  }
-
-  return res.send('ok');
 });
 
 // Номера за сегодня с временем
@@ -188,20 +237,17 @@ app.get('/today-rooms', async (req, res) => {
   try {
     const snapshot = await db.ref(`${VK_ROOMS_ROOT}/${key}`).once('value');
     const dayData = snapshot.val() || {};
-    // dayData: {
-    //   "<convId>": { ts: <unix>, rooms: { "1425": true, "1502": true } },
-    //   ...
-    // }
+    // dayData:
+    //  "<convId>": { ts: <unix>, rooms: { "<room>": true, ... } }
 
-    // Собираем итог: номер → минимальное время среди всех сообщений
     const roomToTs = new Map();
 
     for (const entry of Object.values(dayData)) {
       if (!entry || !entry.rooms) continue;
       const ts = typeof entry.ts === 'number' ? entry.ts : 0;
       for (const room of Object.keys(entry.rooms)) {
-        const existing = roomToTs.get(room);
-        if (existing == null || ts < existing) {
+        const prev = roomToTs.get(room);
+        if (prev == null || ts < prev) {
           roomToTs.set(room, ts);
         }
       }
@@ -224,6 +270,10 @@ app.get('/today-rooms', async (req, res) => {
   }
 });
 
+// стартуем HTTP и Long Poll
 app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  console.log(`HTTP server listening on port ${PORT}`);
+  startLongPoll().catch(err => {
+    console.error('Failed to start Long Poll:', err);
+  });
 });
