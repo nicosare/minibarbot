@@ -66,12 +66,11 @@
 
 <script>
   // Базовый URL вашего бэкенда:
-  const API_BASE = 'https://minibarbot.onrender.com'; // ← при необходимости замените
+  const API_BASE = 'https://minibarbot.onrender.com'; // ← замените при необходимости
   const TODAY_URL = API_BASE + '/today-rooms';
 
   const statusEl = document.getElementById('status');
   const roomsEl = document.getElementById('rooms');
-
   let currentRooms = [];
 
   function renderRooms() {
@@ -102,7 +101,6 @@
 
       const rooms = data.rooms || [];
 
-      // Полностью заменяем список
       currentRooms = rooms;
       renderRooms();
 
@@ -118,9 +116,7 @@
     }
   }
 
-  // Первый запрос сразу
   loadToday();
-  // Затем — каждые 3 секунды
   setInterval(loadToday, 3000);
 </script>
 </body>
