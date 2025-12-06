@@ -4,7 +4,7 @@ const admin = require('firebase-admin');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ID вашей беседы (проверьте по логам message_new)
+// ID вашей беседы (тот, что реально приходит в message_new / message_edit)
 const PEER_ID = 2000000001;
 
 // Данные для Callback API VK
@@ -32,6 +32,12 @@ admin.initializeApp({
 const db = admin.database();
 
 // Ветка, куда бот пишет свои данные, чтобы не трогать существующие структуры
+// Структура:
+// vkRoomsByDate/
+//   YYYY-MM-DD/
+//     <conversation_message_id>/
+//       ts: <unix>
+//       rooms: { "<room>": true, ... }
 const VK_ROOMS_ROOT = 'vkRoomsByDate';
 
 // Екатеринбург: UTC+5 → 5 * 60 минут
@@ -99,36 +105,46 @@ function timeStringFromUnix(tsSec) {
   return `${h}:${m}`;
 }
 
-// ===== обработка нового сообщения =====
+// ===== общая обработка сообщения (и нового, и отредактированного) =====
 
-async function handleNewMessage(msg) {
+async function upsertMessageRooms(msg) {
   if (!msg) return;
 
-  console.log('New message:', msg.peer_id, msg.text);
+  console.log('Message:', msg.peer_id, msg.conversation_message_id, msg.text);
 
   if (msg.peer_id !== PEER_ID) return; // только нужная беседа
 
   const text = msg.text || '';
-  const matches = text.match(/\d{3,4}/g);
-  if (!matches) return;
+  const matches = text.match(/\d{3,4}/g) || [];
 
+  // фильтруем только номера из вашего списка
   const valid = matches.filter(num => ALLOWED_SET.has(num));
-  if (valid.length === 0) return;
-
   const msgTs = msg.date || Math.floor(Date.now() / 1000);
   const key = dateKeyFromUnix(msgTs);
 
-  // Пишем под vkRoomsByDate/<date>/<room> = { ts: <unix> }
-  const updates = {};
-  for (const room of valid) {
-    updates[`${VK_ROOMS_ROOT}/${key}/${room}`] = { ts: msgTs };
+  // conversation_message_id — уникальный ID сообщения в беседе
+  const convId = msg.conversation_message_id || msg.id;
+  if (!convId) return;
+
+  const ref = db.ref(`${VK_ROOMS_ROOT}/${key}/${convId}`);
+
+  if (valid.length === 0) {
+    // В отредактированном сообщении больше нет номеров → удаляем запись
+    await ref.remove();
+    return;
   }
 
-  try {
-    await db.ref().update(updates);
-  } catch (e) {
-    console.error('Firebase update error:', e.message);
+  const roomsObj = {};
+  for (const room of valid) {
+    roomsObj[room] = true;
   }
+
+  // Перезаписываем запись для этого сообщения:
+  // если номер был 1425, а стал 1502 — rooms заменится, 1425 пропадёт, 1502 добавится.
+  await ref.set({
+    ts: msgTs,
+    rooms: roomsObj
+  });
 }
 
 // ===== маршруты =====
@@ -150,12 +166,12 @@ app.post('/vk-callback', async (req, res) => {
     return res.send(CONFIRMATION_CODE);
   }
 
-  if (body.type === 'message_new') {
+  if (body.type === 'message_new' || body.type === 'message_edit') {
     const msg = body.object && (body.object.message || body.object);
     try {
-      await handleNewMessage(msg);
+      await upsertMessageRooms(msg);
     } catch (e) {
-      console.error('handleNewMessage failed:', e);
+      console.error('upsertMessageRooms failed:', e);
     }
     return res.send('ok');
   }
@@ -168,16 +184,33 @@ app.get('/today-rooms', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
   const key = todayKey();
+
   try {
     const snapshot = await db.ref(`${VK_ROOMS_ROOT}/${key}`).once('value');
-    const data = snapshot.val() || {};
+    const dayData = snapshot.val() || {};
+    // dayData: {
+    //   "<convId>": { ts: <unix>, rooms: { "1425": true, "1502": true } },
+    //   ...
+    // }
 
-    // data: { "1425": {ts: 1764936731}, "1502": {ts: ...}, ... }
-    const rooms = Object.entries(data)
-      .filter(([room, obj]) => obj && typeof obj.ts === 'number')
-      .map(([room, obj]) => ({
+    // Собираем итог: номер → минимальное время среди всех сообщений
+    const roomToTs = new Map();
+
+    for (const entry of Object.values(dayData)) {
+      if (!entry || !entry.rooms) continue;
+      const ts = typeof entry.ts === 'number' ? entry.ts : 0;
+      for (const room of Object.keys(entry.rooms)) {
+        const existing = roomToTs.get(room);
+        if (existing == null || ts < existing) {
+          roomToTs.set(room, ts);
+        }
+      }
+    }
+
+    const rooms = Array.from(roomToTs.entries())
+      .map(([room, ts]) => ({
         room,
-        time: timeStringFromUnix(obj.ts)
+        time: timeStringFromUnix(ts)
       }))
       .sort((a, b) => Number(a.room) - Number(b.room));
 
