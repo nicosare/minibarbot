@@ -200,16 +200,20 @@ const lpURL =
         tsCur = data.ts;
 
         const updates = data.updates || [];
-        for (const upd of updates) {
-          if (upd.type === 'message_new' || upd.type === 'message_edit') {
-            const msg = upd.object && (upd.object.message || upd.object);
-            try {
-              await upsertMessageRooms(msg);
-            } catch (e) {
-              console.error('upsertMessageRooms error:', e);
-            }
-          }
-        }
+
+// ЛОГИРУЕМ ВСЕ ОБНОВЛЕНИЯ ДЛЯ ОТЛАДКИ
+for (const upd of updates) {
+  console.log('VK update:', JSON.stringify(upd));
+
+  if (upd.type === 'message_new' || upd.type === 'message_edit') {
+    const msg = upd.object && (upd.object.message || upd.object);
+    try {
+      await upsertMessageRooms(msg);
+    } catch (e) {
+      console.error('upsertMessageRooms error:', e);
+    }
+  }
+}
       }
 
       // Цикл по серверу вышел → запрашиваем новый сервер
