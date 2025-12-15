@@ -40,9 +40,9 @@ const db = admin.database();
 //   { ts: <unix>, rooms: { "<room>": true | { emptied: true } | { deleted: true } } }
 const VK_ROOMS_ROOT = 'vkRoomsByDate';
 
-// Отдельная ветка для опустошённых номеров на дату:
-// vkEmptiedRoomsByDate/<YYYY-MM-DD>/<room>: true
-const VK_EMPTIED_ROOT = 'vkEmptiedRoomsByDate';
+// Отдельная глобальная ветка для опустошённых номеров (без дат):
+// vkEmptiedRooms/<room>: true
+const VK_EMPTIED_ROOT = 'vkEmptiedRooms';
 
 // Екатеринбург: UTC+5 → 5 * 60 минут
 const TZ_OFFSET_MINUTES = 5 * 60;
@@ -172,7 +172,8 @@ async function upsertMessageRooms(msg) {
 
   const roomsObj = {};
   for (const { room, isMinus } of foundRooms) {
-    const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${key}/${room}`);
+    // Глобальный список опустошённых номеров (без привязки к дате)
+    const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${room}`);
 
     if (isMinus) {
       // Сообщение вида "-500" → помечаем номер как удаленный
@@ -346,13 +347,31 @@ app.get('/', (req, res) => {
   res.send('OK');
 });
 
+// Глобальный список опустошённых номеров (без привязки к дате)
+app.get('/emptied-rooms', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+
+  try {
+    const snap = await db.ref(VK_EMPTIED_ROOT).once('value');
+    const data = snap.val() || {};
+    const rooms = Object.keys(data);
+    res.json({ rooms });
+  } catch (e) {
+    console.error('Firebase read error (emptied-rooms):', e.message);
+    res.status(500).json({
+      error: 'DB_ERROR',
+      message: e.message
+    });
+  }
+});
+
 // Номера за сегодня с временем
 app.get('/today-rooms', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
   const key = todayKey();
 
-  try {
+    try {
     const snapshot = await db.ref(`${VK_ROOMS_ROOT}/${key}`).once('value');
     const dayData = snapshot.val() || {};
     // dayData:
@@ -362,6 +381,15 @@ app.get('/today-rooms', async (req, res) => {
     // где ts — самое раннее время появления номера
     // и флаг emptied показывает, что номер был отмечен как опустошён.
     const roomToInfo = new Map();
+
+      // Читаем глобальный список опустошённых номеров
+      let emptiedGlobal = {};
+      try {
+        const emptiedSnap = await db.ref(VK_EMPTIED_ROOT).once('value');
+        emptiedGlobal = emptiedSnap.val() || {};
+      } catch (e) {
+        console.error('Firebase read error (emptied list):', e.message);
+      }
 
     for (const entry of Object.values(dayData)) {
       if (!entry || !entry.rooms) continue;
@@ -402,11 +430,17 @@ app.get('/today-rooms', async (req, res) => {
     }
 
     const rooms = Array.from(roomToInfo.entries())
-      .map(([room, info]) => ({
-        room,
-        time: timeStringFromUnix(info.ts),
-        emptied: !!info.emptied
-      }))
+      .map(([room, info]) => {
+        const globallyEmptied =
+          emptiedGlobal && Object.prototype.hasOwnProperty.call(emptiedGlobal, room);
+        return {
+          room,
+          time: timeStringFromUnix(info.ts),
+          // Номер считается опустошённым, если он либо был отмечен в сообщениях,
+          // либо присутствует в глобальном списке опустошённых.
+          emptied: !!info.emptied || !!globallyEmptied
+        };
+      })
       .sort((a, b) => Number(a.room) - Number(b.room));
 
     res.json({ rooms });
