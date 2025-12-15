@@ -54,7 +54,14 @@ async function setDeadlineStatusForRoom(roomNumber, status) {
       const r = rooms[i];
       if (!r || typeof r !== 'object') continue;
       if (String(r.number) === String(roomNumber)) {
+        // Устанавливаем статус
         await db.ref(`minibarData/rooms/${i}/deadlinesStatus`).set(status);
+        
+        // Если устанавливаем статус 'ok' (опустошение), очищаем продукты
+        if (status === 'ok') {
+          await db.ref(`minibarData/rooms/${i}/products`).set({});
+        }
+        
         break;
       }
     }
