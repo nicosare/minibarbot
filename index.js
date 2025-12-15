@@ -342,11 +342,15 @@ app.get('/today-rooms', async (req, res) => {
     // dayData:
     //  "<convId>": { ts: <unix>, rooms: { "<room>": true, ... } }
 
-    const roomToTs = new Map();
+    // Для каждого номера храним объект { ts, emptied },
+    // где ts — самое раннее время появления номера
+    // и флаг emptied показывает, что номер был отмечен как опустошён.
+    const roomToInfo = new Map();
 
     for (const entry of Object.values(dayData)) {
       if (!entry || !entry.rooms) continue;
       const ts = typeof entry.ts === 'number' ? entry.ts : 0;
+
       for (const room of Object.keys(entry.rooms)) {
         const val = entry.rooms[room];
 
@@ -360,21 +364,32 @@ app.get('/today-rooms', async (req, res) => {
 
         if (isDeleted) {
           // Сообщение с "-<номер>" удаляет номер из итогового списка
-          roomToTs.delete(room);
+          roomToInfo.delete(room);
           continue;
         }
 
-        const prev = roomToTs.get(room);
-        if (prev == null || ts < prev) {
-          roomToTs.set(room, ts);
+        const isEmptied =
+          val && typeof val === 'object' && val.emptied === true;
+
+        const prev = roomToInfo.get(room);
+
+        if (!prev) {
+          // Первая встреча номера
+          roomToInfo.set(room, { ts, emptied: isEmptied });
+        } else {
+          // Обновляем минимальный ts
+          const newTs = ts < prev.ts ? ts : prev.ts;
+          const newEmptied = prev.emptied || isEmptied;
+          roomToInfo.set(room, { ts: newTs, emptied: newEmptied });
         }
       }
     }
 
-    const rooms = Array.from(roomToTs.entries())
-      .map(([room, ts]) => ({
+    const rooms = Array.from(roomToInfo.entries())
+      .map(([room, info]) => ({
         room,
-        time: timeStringFromUnix(ts)
+        time: timeStringFromUnix(info.ts),
+        emptied: !!info.emptied
       }))
       .sort((a, b) => Number(a.room) - Number(b.room));
 
