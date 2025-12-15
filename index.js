@@ -43,6 +43,26 @@ const VK_EMPTIED_ROOT = 'vkEmptiedRooms';
 // vkCheckedRoomsByDate/<YYYY-MM-DD>/<room>: { ts: <unix> }
 const VK_CHECKED_ROOT = 'vkCheckedRoomsByDate';
 
+// Обновление статуса сроков для номера в ветке minibarData/rooms
+async function setDeadlineStatusForRoom(roomNumber, status) {
+  try {
+    const snap = await db.ref('minibarData/rooms').once('value');
+    const rooms = snap.val();
+    if (!Array.isArray(rooms)) return;
+
+    for (let i = 0; i < rooms.length; i++) {
+      const r = rooms[i];
+      if (!r || typeof r !== 'object') continue;
+      if (String(r.number) === String(roomNumber)) {
+        await db.ref(`minibarData/rooms/${i}/deadlinesStatus`).set(status);
+        break;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to update deadline status for room', roomNumber, e.message);
+  }
+}
+
 // Екатеринбург: UTC+5 → 5 * 60 минут
 const TZ_OFFSET_MINUTES = 5 * 60;
 
@@ -170,6 +190,7 @@ async function upsertMessageRooms(msg) {
   for (const { room, isMinus } of foundRooms) {
     // Глобальный список опустошённых номеров (без привязки к дате)
     const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${room}`);
+    let wasEmptied = false;
 
     if (isMinus) {
       // Сообщение вида "-500" → номер нужно убрать из списка проверенных
@@ -185,13 +206,29 @@ async function upsertMessageRooms(msg) {
 
       // Запоминаем номер как опустошённый в отдельной ветке
       await emptiedRef.set(true);
+
+      // По требованию: при "опустош" ставим deadlinesStatus = ok
+      await setDeadlineStatusForRoom(room, 'ok');
     } else {
+      // Проверяем, был ли номер раньше в списке опустошённых
+      try {
+        const snap = await emptiedRef.once('value');
+        wasEmptied = snap.exists();
+      } catch (e) {
+        console.error('Failed to read emptied state:', e.message);
+      }
+
       // Обычный номер без спец. пометок
       roomsToAdd.push({ room, emptied: false });
 
       // Если номер был ранее в списке опустошённых, а теперь пришёл без подписей,
       // убираем его из списка опустошённых.
       await emptiedRef.remove();
+
+      // По требованию: если номер был опустошён и пришёл без пометки — deadlinesStatus = neutral
+      if (wasEmptied) {
+        await setDeadlineStatusForRoom(room, 'neutral');
+      }
     }
   }
 
