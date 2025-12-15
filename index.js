@@ -167,12 +167,6 @@ async function upsertMessageRooms(msg) {
   }
 
   if (foundRooms.length === 0) {
-    // В сообщении больше нет номеров → удаляем запись
-    const convIdNoRooms = msg.conversation_message_id || msg.id;
-    if (!convIdNoRooms) return;
-    const keyNoRooms = dateKeyFromUnix(msg.date || Math.floor(Date.now() / 1000));
-    const refNoRooms = db.ref(`${VK_ROOMS_ROOT}/${keyNoRooms}/${convIdNoRooms}`);
-    await refNoRooms.remove();
     return;
   }
 
@@ -209,6 +203,15 @@ async function upsertMessageRooms(msg) {
       // По требованию: при "опустош" ставим deadlinesStatus = ok
       await setDeadlineStatusForRoom(room, 'ok');
     } else {
+      // Проверяем, был ли номер ранее в списке опустошённых
+      let wasEmptied = false;
+      try {
+        const snap = await emptiedRef.once('value');
+        wasEmptied = snap.exists();
+      } catch (e) {
+        console.error('Failed to read emptied state for room', room, e.message);
+      }
+
       // Обычный номер без спец. пометок
       roomsToAdd.push({ room, emptied: false });
 
@@ -216,8 +219,10 @@ async function upsertMessageRooms(msg) {
       // убираем его из списка опустошённых.
       await emptiedRef.remove();
 
-      // По требованию: при сообщении с обычным номером сбрасываем статус сроков в neutral
-      await setDeadlineStatusForRoom(room, 'neutral');
+      // Статус сроков меняем на neutral ТОЛЬКО если он действительно был опустошён ранее
+      if (wasEmptied) {
+        await setDeadlineStatusForRoom(room, 'neutral');
+      }
     }
   }
 
