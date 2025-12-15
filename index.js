@@ -37,8 +37,12 @@ const db = admin.database();
 
 // Ветка, куда пишем, чтобы не трогать ваши данные
 // vkRoomsByDate/<YYYY-MM-DD>/<conversation_message_id>:
-//   { ts: <unix>, rooms: { "<room>": true, ... } }
+//   { ts: <unix>, rooms: { "<room>": true | { emptied: true } | { deleted: true } } }
 const VK_ROOMS_ROOT = 'vkRoomsByDate';
+
+// Отдельная ветка для опустошённых номеров на дату:
+// vkEmptiedRoomsByDate/<YYYY-MM-DD>/<room>: true
+const VK_EMPTIED_ROOT = 'vkEmptiedRoomsByDate';
 
 // Екатеринбург: UTC+5 → 5 * 60 минут
 const TZ_OFFSET_MINUTES = 5 * 60;
@@ -168,15 +172,27 @@ async function upsertMessageRooms(msg) {
 
   const roomsObj = {};
   for (const { room, isMinus } of foundRooms) {
+    const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${key}/${room}`);
+
     if (isMinus) {
       // Сообщение вида "-500" → помечаем номер как удаленный
       roomsObj[room] = { deleted: true };
+
+      // Любой минус по номеру снимает его из списка опустошённых
+      await emptiedRef.remove();
     } else if (hasEmptyMark) {
       // После номера/номеров есть слово "опустош" → помечаем как опустошенный
       roomsObj[room] = { emptied: true };
+
+      // Запоминаем номер как опустошённый в отдельной ветке
+      await emptiedRef.set(true);
     } else {
       // Обычный номер без спец. пометок
       roomsObj[room] = true;
+
+      // Если номер был ранее в списке опустошённых, а теперь пришёл без подписей,
+      // убираем его из списка опустошённых.
+      await emptiedRef.remove();
     }
   }
 
