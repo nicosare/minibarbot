@@ -190,7 +190,6 @@ async function upsertMessageRooms(msg) {
   for (const { room, isMinus } of foundRooms) {
     // Глобальный список опустошённых номеров (без привязки к дате)
     const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${room}`);
-    let wasEmptied = false;
 
     if (isMinus) {
       // Сообщение вида "-500" → номер нужно убрать из списка проверенных
@@ -210,14 +209,6 @@ async function upsertMessageRooms(msg) {
       // По требованию: при "опустош" ставим deadlinesStatus = ok
       await setDeadlineStatusForRoom(room, 'ok');
     } else {
-      // Проверяем, был ли номер раньше в списке опустошённых
-      try {
-        const snap = await emptiedRef.once('value');
-        wasEmptied = snap.exists();
-      } catch (e) {
-        console.error('Failed to read emptied state:', e.message);
-      }
-
       // Обычный номер без спец. пометок
       roomsToAdd.push({ room, emptied: false });
 
@@ -225,10 +216,8 @@ async function upsertMessageRooms(msg) {
       // убираем его из списка опустошённых.
       await emptiedRef.remove();
 
-      // По требованию: если номер был опустошён и пришёл без пометки — deadlinesStatus = neutral
-      if (wasEmptied) {
-        await setDeadlineStatusForRoom(room, 'neutral');
-      }
+      // По требованию: при сообщении с обычным номером сбрасываем статус сроков в neutral
+      await setDeadlineStatusForRoom(room, 'neutral');
     }
   }
 
