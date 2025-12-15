@@ -108,8 +108,55 @@ async function upsertMessageRooms(msg) {
   if (msg.peer_id !== PEER_ID) return;
 
   const text = msg.text || '';
-  const matches = text.match(/\d{3,4}/g) || [];
-  const valid = matches.filter(num => ALLOWED_SET.has(num));
+  // Ищем номера с учетом их позиции, чтобы понять,
+  // стоит ли перед номером "-" (значит — удалить),
+  // а также есть ли после номеров слово "опустош".
+  const matchesIter = text.matchAll(/\d{3,4}/g);
+  const foundRooms = [];
+  let hasMinusAny = false;
+
+  for (const m of matchesIter) {
+    const num = m[0];
+    if (!ALLOWED_SET.has(num)) continue;
+
+    const start = m.index != null ? m.index : text.indexOf(num);
+    const end = start + num.length;
+
+    // Проверяем, есть ли перед номером знак "-" (можно с пробелами).
+    let isMinus = false;
+    for (let i = start - 1; i >= 0; i--) {
+      const ch = text[i];
+      if (ch === ' ' || ch === '\t') continue;
+      if (ch === '-') isMinus = true;
+      break;
+    }
+
+    const roomInfo = {
+      room: num,
+      start,
+      end,
+      isMinus
+    };
+    foundRooms.push(roomInfo);
+    if (isMinus) {
+      hasMinusAny = true;
+    }
+  }
+
+  if (foundRooms.length === 0) {
+    // В сообщении больше нет номеров → удаляем запись
+    const convIdNoRooms = msg.conversation_message_id || msg.id;
+    if (!convIdNoRooms) return;
+    const keyNoRooms = dateKeyFromUnix(msg.date || Math.floor(Date.now() / 1000));
+    const refNoRooms = db.ref(`${VK_ROOMS_ROOT}/${keyNoRooms}/${convIdNoRooms}`);
+    await refNoRooms.remove();
+    return;
+  }
+
+  // Проверяем, есть ли слово "опустош" после последнего номера (игнорируем регистр).
+  const lastEnd = Math.max(...foundRooms.map(r => r.end));
+  const suffix = text.slice(lastEnd);
+  const hasEmptyMark = suffix.toLowerCase().includes('опустош');
 
   const msgTs = msg.date || Math.floor(Date.now() / 1000);
   const key = dateKeyFromUnix(msgTs);
@@ -119,15 +166,18 @@ async function upsertMessageRooms(msg) {
 
   const ref = db.ref(`${VK_ROOMS_ROOT}/${key}/${convId}`);
 
-  if (valid.length === 0) {
-    // В сообщении больше нет номеров → удаляем запись
-    await ref.remove();
-    return;
-  }
-
   const roomsObj = {};
-  for (const room of valid) {
-    roomsObj[room] = true;
+  for (const { room, isMinus } of foundRooms) {
+    if (isMinus) {
+      // Сообщение вида "-500" → помечаем номер как удаленный
+      roomsObj[room] = { deleted: true };
+    } else if (hasEmptyMark) {
+      // После номера/номеров есть слово "опустош" → помечаем как опустошенный
+      roomsObj[room] = { emptied: true };
+    } else {
+      // Обычный номер без спец. пометок
+      roomsObj[room] = true;
+    }
   }
 
   // Полностью перезаписываем номера для этого сообщения
@@ -135,6 +185,16 @@ async function upsertMessageRooms(msg) {
     ts: msgTs,
     rooms: roomsObj
   });
+
+  // Если в сообщении был хотя бы один номер с "-", после успешного
+  // "удаления из базы" ставим лайк на это сообщение.
+  if (hasMinusAny) {
+    try {
+      await addLikeToMessage(msg.peer_id, msg.conversation_message_id || msg.id);
+    } catch (e) {
+      console.error('addLikeToMessage error:', e);
+    }
+  }
 }
 
 // === Bots Long Poll API ===
@@ -156,6 +216,36 @@ async function getLongPollServer() {
   }
 
   return data.response; // { server, key, ts }
+}
+
+// Поставить "лайк" (reaction=like) на сообщение после успешного удаления номера
+async function addLikeToMessage(peerId, conversationMessageId) {
+  if (!peerId || !conversationMessageId) return;
+
+  try {
+    const params = new URLSearchParams({
+      peer_id: String(peerId),
+      conversation_message_id: String(conversationMessageId),
+      reaction: 'like',
+      access_token: VK_BOT_TOKEN,
+      v: '5.199'
+    });
+
+    const res = await fetch('https://api.vk.com/method/messages.addReaction', {
+      method: 'POST',
+      body: params
+    });
+
+    const data = await res.json();
+
+    if (data.error) {
+      console.error('VK messages.addReaction error:', data.error.error_msg || data.error);
+    } else {
+      console.log('Reaction \"like\" added to message', peerId, conversationMessageId);
+    }
+  } catch (e) {
+    console.error('Failed to add reaction to message:', e.message);
+  }
 }
 
 async function startLongPoll() {
@@ -258,6 +348,22 @@ app.get('/today-rooms', async (req, res) => {
       if (!entry || !entry.rooms) continue;
       const ts = typeof entry.ts === 'number' ? entry.ts : 0;
       for (const room of Object.keys(entry.rooms)) {
+        const val = entry.rooms[room];
+
+        // Поддержка новых форматов:
+        //  - true: обычный номер
+        //  - { emptied: true }: опустошенный номер
+        //  - { deleted: true } или false: удаленный номер
+        const isDeleted =
+          val === false ||
+          (val && typeof val === 'object' && val.deleted === true);
+
+        if (isDeleted) {
+          // Сообщение с "-<номер>" удаляет номер из итогового списка
+          roomToTs.delete(room);
+          continue;
+        }
+
         const prev = roomToTs.get(room);
         if (prev == null || ts < prev) {
           roomToTs.set(room, ts);
