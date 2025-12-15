@@ -35,11 +35,6 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// Ветка, куда пишем, чтобы не трогать ваши данные
-// vkRoomsByDate/<YYYY-MM-DD>/<conversation_message_id>:
-//   { ts: <unix>, rooms: { "<room>": true | { emptied: true } | { deleted: true } } }
-const VK_ROOMS_ROOT = 'vkRoomsByDate';
-
 // Отдельная глобальная ветка для опустошённых номеров (без дат):
 // vkEmptiedRooms/<room>: true
 const VK_EMPTIED_ROOT = 'vkEmptiedRooms';
@@ -169,12 +164,7 @@ async function upsertMessageRooms(msg) {
   const msgTs = msg.date || Math.floor(Date.now() / 1000);
   const key = dateKeyFromUnix(msgTs);
 
-  const convId = msg.conversation_message_id || msg.id;
-  if (!convId) return;
-
-  const ref = db.ref(`${VK_ROOMS_ROOT}/${key}/${convId}`);
-
-  const roomsObj = {};
+  const roomsToAdd = [];
   const minusRooms = [];
 
   for (const { room, isMinus } of foundRooms) {
@@ -191,68 +181,17 @@ async function upsertMessageRooms(msg) {
 
     if (hasEmptyMark) {
       // После номера/номеров есть слово "опустуш" → помечаем как опустошенный
-      roomsObj[room] = { emptied: true };
+      roomsToAdd.push({ room, emptied: true });
 
       // Запоминаем номер как опустошённый в отдельной ветке
       await emptiedRef.set(true);
     } else {
       // Обычный номер без спец. пометок
-      roomsObj[room] = true;
+      roomsToAdd.push({ room, emptied: false });
 
       // Если номер был ранее в списке опустошённых, а теперь пришёл без подписей,
       // убираем его из списка опустошённых.
       await emptiedRef.remove();
-    }
-  }
-
-  // Если в сообщении только минус-номера → просто очищаем запись для этого сообщения
-  // (чтобы оно не попадало в список проверенных)
-  if (Object.keys(roomsObj).length === 0) {
-    await ref.remove();
-  } else {
-    // Полностью перезаписываем номера для этого сообщения (только не-минус номера)
-    await ref.set({
-      ts: msgTs,
-      rooms: roomsObj
-    });
-  }
-
-  // Если были номера с "-", удаляем их из всех записей за этот день
-  if (minusRooms.length > 0) {
-    try {
-      const dayRef = db.ref(`${VK_ROOMS_ROOT}/${key}`);
-      const daySnap = await dayRef.once('value');
-      const dayVal = daySnap.val() || {};
-
-      let changed = false;
-
-      for (const [entryKey, entry] of Object.entries(dayVal)) {
-        if (!entry || !entry.rooms) continue;
-
-        let roomsChanged = false;
-        for (const mRoom of minusRooms) {
-          if (entry.rooms.hasOwnProperty(mRoom)) {
-            delete entry.rooms[mRoom];
-            roomsChanged = true;
-          }
-        }
-
-        if (roomsChanged) {
-          // Если после удаления номеров в сообщении больше нет комнат — удаляем всю запись
-          if (Object.keys(entry.rooms).length === 0) {
-            delete dayVal[entryKey];
-          } else {
-            dayVal[entryKey] = entry;
-          }
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        await dayRef.set(dayVal);
-      }
-    } catch (e) {
-      console.error('Failed to remove minus-rooms from day list:', e);
     }
   }
 
@@ -261,8 +200,8 @@ async function upsertMessageRooms(msg) {
     const checkedDayRef = db.ref(`${VK_CHECKED_ROOT}/${key}`);
 
     // Добавляем/обновляем все номера из этого сообщения без "-"
-    for (const room of Object.keys(roomsObj)) {
-      await checkedDayRef.child(room).set({ ts: msgTs });
+    for (const item of roomsToAdd) {
+      await checkedDayRef.child(item.room).set({ ts: msgTs });
     }
 
     // Удаляем все номера, которые пришли с "-"
