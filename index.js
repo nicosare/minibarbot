@@ -135,6 +135,7 @@ function isValidCommand(text) {
 
   // Убираем знаки препинания и пробелы для анализа
   const normalized = text.trim();
+  const lowerText = normalized.toLowerCase(); // ← ДОБАВЬТЕ ЭТУ СТРОЧКУ
   if (normalized.length === 0) return false;
 
   // Находим все номера в тексте
@@ -207,7 +208,6 @@ function isValidCommand(text) {
   // Проверяем паттерн 3: номер/номера и "опустош" (опустош может быть частью слова)
   // Примеры: "510 опустошил", "510 опустош", "510 опустошить"
   // НЕ валидно: "510 опустошить надо", "510 опустош и ещё что-то"
-  const lowerText = normalized.toLowerCase();
   const опустошIndex = lowerText.indexOf('опустош');
   
   if (опустошIndex !== -1) {
