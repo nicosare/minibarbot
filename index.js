@@ -44,6 +44,10 @@ const VK_ROOMS_ROOT = 'vkRoomsByDate';
 // vkEmptiedRooms/<room>: true
 const VK_EMPTIED_ROOT = 'vkEmptiedRooms';
 
+// Упрощенная структура "уже проверенных номеров" по дате:
+// vkCheckedRoomsByDate/<YYYY-MM-DD>/<room>: { ts: <unix> }
+const VK_CHECKED_ROOT = 'vkCheckedRoomsByDate';
+
 // Екатеринбург: UTC+5 → 5 * 60 минут
 const TZ_OFFSET_MINUTES = 5 * 60;
 
@@ -171,18 +175,22 @@ async function upsertMessageRooms(msg) {
   const ref = db.ref(`${VK_ROOMS_ROOT}/${key}/${convId}`);
 
   const roomsObj = {};
+  const minusRooms = [];
+
   for (const { room, isMinus } of foundRooms) {
     // Глобальный список опустошённых номеров (без привязки к дате)
     const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${room}`);
 
     if (isMinus) {
-      // Сообщение вида "-500" → помечаем номер как удаленный
-      roomsObj[room] = { deleted: true };
-
-      // Любой минус по номеру снимает его из списка опустошённых
+      // Сообщение вида "-500" → номер нужно убрать из списка проверенных
+      // и из списка опустошённых.
+      minusRooms.push(room);
       await emptiedRef.remove();
-    } else if (hasEmptyMark) {
-      // После номера/номеров есть слово "опустош" → помечаем как опустошенный
+      continue;
+    }
+
+    if (hasEmptyMark) {
+      // После номера/номеров есть слово "опустуш" → помечаем как опустошенный
       roomsObj[room] = { emptied: true };
 
       // Запоминаем номер как опустошённый в отдельной ветке
@@ -197,11 +205,73 @@ async function upsertMessageRooms(msg) {
     }
   }
 
-  // Полностью перезаписываем номера для этого сообщения
-  await ref.set({
-    ts: msgTs,
-    rooms: roomsObj
-  });
+  // Если в сообщении только минус-номера → просто очищаем запись для этого сообщения
+  // (чтобы оно не попадало в список проверенных)
+  if (Object.keys(roomsObj).length === 0) {
+    await ref.remove();
+  } else {
+    // Полностью перезаписываем номера для этого сообщения (только не-минус номера)
+    await ref.set({
+      ts: msgTs,
+      rooms: roomsObj
+    });
+  }
+
+  // Если были номера с "-", удаляем их из всех записей за этот день
+  if (minusRooms.length > 0) {
+    try {
+      const dayRef = db.ref(`${VK_ROOMS_ROOT}/${key}`);
+      const daySnap = await dayRef.once('value');
+      const dayVal = daySnap.val() || {};
+
+      let changed = false;
+
+      for (const [entryKey, entry] of Object.entries(dayVal)) {
+        if (!entry || !entry.rooms) continue;
+
+        let roomsChanged = false;
+        for (const mRoom of minusRooms) {
+          if (entry.rooms.hasOwnProperty(mRoom)) {
+            delete entry.rooms[mRoom];
+            roomsChanged = true;
+          }
+        }
+
+        if (roomsChanged) {
+          // Если после удаления номеров в сообщении больше нет комнат — удаляем всю запись
+          if (Object.keys(entry.rooms).length === 0) {
+            delete dayVal[entryKey];
+          } else {
+            dayVal[entryKey] = entry;
+          }
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        await dayRef.set(dayVal);
+      }
+    } catch (e) {
+      console.error('Failed to remove minus-rooms from day list:', e);
+    }
+  }
+
+  // Обновляем упрощённую структуру "уже проверенных номеров" на текущую дату.
+  try {
+    const checkedDayRef = db.ref(`${VK_CHECKED_ROOT}/${key}`);
+
+    // Добавляем/обновляем все номера из этого сообщения без "-"
+    for (const room of Object.keys(roomsObj)) {
+      await checkedDayRef.child(room).set({ ts: msgTs });
+    }
+
+    // Удаляем все номера, которые пришли с "-"
+    for (const mRoom of minusRooms) {
+      await checkedDayRef.child(mRoom).remove();
+    }
+  } catch (e) {
+    console.error('Failed to update checked rooms list:', e);
+  }
 
   // Если в сообщении был хотя бы один номер с "-", после успешного
   // "удаления из базы" ставим лайк на это сообщение.
@@ -371,62 +441,27 @@ app.get('/today-rooms', async (req, res) => {
 
   const key = todayKey();
 
-    try {
-    const snapshot = await db.ref(`${VK_ROOMS_ROOT}/${key}`).once('value');
-    const dayData = snapshot.val() || {};
-    // dayData:
-    //  "<convId>": { ts: <unix>, rooms: { "<room>": true, ... } }
+  try {
+    // Читаем упрощенную структуру проверенных номеров на сегодня
+    const checkedSnap = await db.ref(`${VK_CHECKED_ROOT}/${key}`).once('value');
+    const checkedData = checkedSnap.val() || {};
 
-    // Для каждого номера храним объект { ts, emptied },
-    // где ts — самое раннее время появления номера
-    // и флаг emptied показывает, что номер был отмечен как опустошён.
+    // Для каждого номера храним объект { ts },
+    // где ts — время (последнего) появления номера в списке проверенных.
     const roomToInfo = new Map();
-
-      // Читаем глобальный список опустошённых номеров
-      let emptiedGlobal = {};
-      try {
-        const emptiedSnap = await db.ref(VK_EMPTIED_ROOT).once('value');
-        emptiedGlobal = emptiedSnap.val() || {};
-      } catch (e) {
-        console.error('Firebase read error (emptied list):', e.message);
-      }
-
-    for (const entry of Object.values(dayData)) {
-      if (!entry || !entry.rooms) continue;
+    for (const [room, entry] of Object.entries(checkedData)) {
+      if (!entry) continue;
       const ts = typeof entry.ts === 'number' ? entry.ts : 0;
+      roomToInfo.set(room, { ts });
+    }
 
-      for (const room of Object.keys(entry.rooms)) {
-        const val = entry.rooms[room];
-
-        // Поддержка новых форматов:
-        //  - true: обычный номер
-        //  - { emptied: true }: опустошенный номер
-        //  - { deleted: true } или false: удаленный номер
-        const isDeleted =
-          val === false ||
-          (val && typeof val === 'object' && val.deleted === true);
-
-        if (isDeleted) {
-          // Сообщение с "-<номер>" удаляет номер из итогового списка
-          roomToInfo.delete(room);
-          continue;
-        }
-
-        const isEmptied =
-          val && typeof val === 'object' && val.emptied === true;
-
-        const prev = roomToInfo.get(room);
-
-        if (!prev) {
-          // Первая встреча номера
-          roomToInfo.set(room, { ts, emptied: isEmptied });
-        } else {
-          // Обновляем минимальный ts
-          const newTs = ts < prev.ts ? ts : prev.ts;
-          const newEmptied = prev.emptied || isEmptied;
-          roomToInfo.set(room, { ts: newTs, emptied: newEmptied });
-        }
-      }
+    // Читаем глобальный список опустошённых номеров
+    let emptiedGlobal = {};
+    try {
+      const emptiedSnap = await db.ref(VK_EMPTIED_ROOT).once('value');
+      emptiedGlobal = emptiedSnap.val() || {};
+    } catch (e) {
+      console.error('Firebase read error (emptied list):', e.message);
     }
 
     const rooms = Array.from(roomToInfo.entries())
@@ -437,8 +472,6 @@ app.get('/today-rooms', async (req, res) => {
           room,
           time: timeStringFromUnix(info.ts),
           // Источником правды для опустошения является только глобальный список.
-          // Если номер убрали из vkEmptiedRooms (сообщением без "опустош" или с "-"),
-          // флаг emptied здесь тоже станет false.
           emptied: !!globallyEmptied
         };
       })
