@@ -436,9 +436,10 @@ app.get('/today-rooms', async (req, res) => {
         return {
           room,
           time: timeStringFromUnix(info.ts),
-          // Номер считается опустошённым, если он либо был отмечен в сообщениях,
-          // либо присутствует в глобальном списке опустошённых.
-          emptied: !!info.emptied || !!globallyEmptied
+          // Источником правды для опустошения является только глобальный список.
+          // Если номер убрали из vkEmptiedRooms (сообщением без "опустош" или с "-"),
+          // флаг emptied здесь тоже станет false.
+          emptied: !!globallyEmptied
         };
       })
       .sort((a, b) => Number(a.room) - Number(b.room));
