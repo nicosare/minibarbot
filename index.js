@@ -129,124 +129,75 @@ function timeStringFromUnix(tsSec) {
   return `${h}:${m}`;
 }
 
-// Проверка, является ли сообщение валидной командой
-function isValidCommand(text) {
-  if (!text || typeof text !== 'string') return false;
-
-  // Убираем знаки препинания и пробелы для анализа
-  const normalized = text.trim();
-  const lowerText = normalized.toLowerCase();
-  if (normalized.length === 0) return false;
-
-  // Находим все номера в тексте
-  const roomMatches = [];
-  const matchesIter = normalized.matchAll(/\d{3,4}/g);
-  for (const m of matchesIter) {
-    const num = m[0];
-    if (!ALLOWED_SET.has(num)) continue;
-    const start = m.index != null ? m.index : normalized.indexOf(num);
-    const end = start + num.length;
-    roomMatches.push({ num, start, end });
-  }
-
-  if (roomMatches.length === 0) return false;
-
-  // Проверяем паттерн 1: только "-", номера и разделители (пробелы, запятые)
-  // Примеры: "-510", "-510 -512", "- 510", "-504, -510, -512"
-  const minusPattern = /^[\s\-,]*(\d{3,4}[\s\-,]*)+$/;
-  if (minusPattern.test(normalized)) {
-    // Проверяем, что все найденные номера действительно с "-"
-    let allHaveMinus = true;
-    for (const { num, start } of roomMatches) {
-      let hasMinus = false;
-      for (let i = start - 1; i >= 0; i--) {
-        const ch = normalized[i];
-        if (ch === ' ' || ch === '\t' || ch === ',') continue;
-        if (ch === '-') {
-          hasMinus = true;
-          break;
-        }
-        break;
-      }
-      if (!hasMinus) {
-        allHaveMinus = false;
-        break;
-      }
-    }
-    if (allHaveMinus) return true;
-  }
-
-  // Проверяем паттерн 2: только номер/номера (без "-" перед номерами и без "опустош")
-  // Примеры: "510", "510 512", "510-512" (дефис между номерами допустим)
-  // Проверяем, что нет "-" непосредственно перед номерами (это было бы паттерн 1)
-  let hasMinusBeforeAnyRoom = false;
-  for (const { start } of roomMatches) {
-    // Проверяем символы перед номером
-    for (let i = start - 1; i >= 0; i--) {
-      const ch = normalized[i];
-      if (ch === ' ' || ch === '\t' || ch === ',') continue;
-      if (ch === '-') {
-        // Найден "-" перед номером - это паттерн удаления, не паттерн 2
-        hasMinusBeforeAnyRoom = true;
-        break;
-      }
-      // Если встретили другой символ (не пробел и не "-"), это не "-" перед номером
-      break;
-    }
-    if (hasMinusBeforeAnyRoom) break;
-  }
+// Новая логика парсинга сообщений
+function parseMessage(text) {
+  if (!text || typeof text !== 'string') return null;
   
-  if (!hasMinusBeforeAnyRoom) {
-    // Проверяем, что в тексте нет "опустош" (это было бы паттерн 3)
-    if (lowerText.indexOf('опустош') === -1) {
-      // Проверяем, что это действительно только номера и знаки препинания
-      const textWithoutRooms = normalized.replace(/\d{3,4}/g, '').replace(/[\s,\.;:!?\-]/g, '');
-      if (textWithoutRooms.length === 0) return true;
-    }
-  }
-
-  // Проверяем паттерн 3: номер/номера и "опустош" (опустош может быть частью слова)
-  // Примеры: "510 опустошил", "510 опустош", "510 опустошить"
-  // НЕ валидно: "510 опустошить надо", "510 опустош и ещё что-то"
-  const опустошIndex = lowerText.indexOf('опустош');
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return null;
   
-  if (опустошIndex !== -1) {
-    // Проверяем, что "опустош" идёт после номеров
-    const lastRoomEnd = Math.max(...roomMatches.map(r => r.end));
-    if (опустошIndex < lastRoomEnd) return false;
-
-    // Проверяем, что перед "опустош" нет посторонних слов (только номера и знаки препинания)
-    const beforeОпустош = normalized.slice(0, опустошIndex);
-    const beforeCleaned = beforeОпустош.replace(/\d{3,4}/g, '').replace(/[\s,\.;:!?\-]/g, '');
-    if (beforeCleaned.length > 0) return false;
-
-    // Проверяем, что после "опустош" нет других слов
-    const afterОпустош = normalized.slice(опустошIndex + 'опустош'.length);
+  // Проверяем, начинается ли сообщение с "-"
+  if (trimmed.startsWith('-')) {
+    // Удаление - более строгая проверка
+    const withoutMinus = trimmed.slice(1).trim();
+    if (withoutMinus.length === 0) return null;
     
-    // Если после "опустош" сразу идут буквы (без пробела) - это часть слова, например "опустошил"
-    // Проверяем, что после этого слова нет других слов
-    if (afterОпустош.length > 0) {
-      // Находим конец слова, содержащего "опустош" (до пробела или знака препинания)
-      const wordMatch = afterОпустош.match(/^[а-яёa-z]*/i);
-      if (wordMatch) {
-        // Есть продолжение слова после "опустош"
-        const wordEnd = wordMatch[0].length;
-        const afterWord = afterОпустош.slice(wordEnd);
-        // После слова должны быть только пробелы и знаки препинания
-        const afterWordCleaned = afterWord.replace(/[\s,\.;:!?\-]/g, '');
-        if (afterWordCleaned.length > 0) return false; // Есть другие слова после
-      } else {
-        // После "опустош" сразу пробел или знак препинания
-        // Проверяем, что дальше нет букв (других слов)
-        const afterCleaned = afterОпустош.replace(/[\s,\.;:!?\-]/g, '');
-        if (afterCleaned.length > 0) return false; // Есть другие слова
-      }
+    // Ищем все номера
+    const roomMatches = withoutMinus.match(/\d{3,4}/g) || [];
+    const validRooms = roomMatches.filter(room => ALLOWED_SET.has(room));
+    
+    if (validRooms.length === 0) return null;
+    
+    // Для удаления: проверяем, что после удаления всех номеров и разделителей ничего не осталось
+    // Разрешаем только номера и разделители (пробелы, запятые, точки, тире)
+    const textWithoutRooms = withoutMinus.replace(/\d{3,4}/g, '').replace(/[\s,\-\.;:!?]/g, '');
+    if (textWithoutRooms.length > 0) {
+      // Есть посторонние символы/слова - игнорируем
+      return null;
     }
-
-    return true;
+    
+    return { type: 'delete', rooms: validRooms };
   }
-
-  return false;
+  
+  // Ищем первое число в сообщении
+  const firstMatch = trimmed.match(/^\d{3,4}/);
+  if (!firstMatch) return null;
+  
+  const firstRoom = firstMatch[0];
+  if (!ALLOWED_SET.has(firstRoom)) return null;
+  
+  // Находим все номера в сообщении
+  const roomMatches = trimmed.match(/\d{3,4}/g) || [];
+  const validRooms = roomMatches.filter(room => ALLOWED_SET.has(room));
+  
+  if (validRooms.length === 0) return null;
+  
+  // Проверяем, что нет слов между номерами
+  // Для этого проверяем часть текста до последнего номера
+  const lastRoom = validRooms[validRooms.length - 1];
+  const lastIndex = trimmed.lastIndexOf(lastRoom) + lastRoom.length;
+  
+  // Текст до последнего номера (включая разделители)
+  const beforeLastRoom = trimmed.slice(0, lastIndex);
+  
+  // Удаляем все номера и разрешенные разделители
+  const beforeCleaned = beforeLastRoom.replace(/\d{3,4}/g, '').replace(/[\s,\-\.;:!?]/g, '');
+  if (beforeCleaned.length > 0) {
+    // Есть слова между номерами - игнорируем
+    return null;
+  }
+  
+  // Текст после последнего номера
+  const afterLastRoom = trimmed.slice(lastIndex).trim().toLowerCase();
+  
+  // Проверяем, есть ли "опустош" после последнего номера
+  // Ищем "опустош" в любом месте после номеров
+  const опустошIndex = afterLastRoom.indexOf('опустош');
+  const hasEmptyMark = опустошIndex !== -1;
+  
+  // Для добавления: если есть слово "опустош", то помечаем как опустошённый
+  // Не важно, что после "опустош" (могут быть другие слова)
+  return { type: 'add', rooms: validRooms, emptied: hasEmptyMark };
 }
 
 // === обработка (нового или отредактированного) сообщения ===
@@ -259,133 +210,69 @@ async function upsertMessageRooms(msg) {
 
   const text = msg.text || '';
   
-  // Проверяем, является ли сообщение валидной командой
-  if (!isValidCommand(text)) {
+  // Парсим сообщение
+  const parsed = parseMessage(text);
+  if (!parsed) {
     console.log('Message ignored - not a valid command:', text);
     return;
   }
 
-  // Ищем номера с учетом их позиции, чтобы понять,
-  // стоит ли перед номером "-" (значит — удалить),
-  // а также есть ли после номеров слово "опустош".
-  const matchesIter = text.matchAll(/\d{3,4}/g);
-  const foundRooms = [];
-  let hasMinusAny = false;
-
-  for (const m of matchesIter) {
-    const num = m[0];
-    if (!ALLOWED_SET.has(num)) continue;
-
-    const start = m.index != null ? m.index : text.indexOf(num);
-    const end = start + num.length;
-
-    // Проверяем, есть ли перед номером знак "-" (можно с пробелами).
-    let isMinus = false;
-    for (let i = start - 1; i >= 0; i--) {
-      const ch = text[i];
-      if (ch === ' ' || ch === '\t') continue;
-      if (ch === '-') isMinus = true;
-      break;
-    }
-
-    const roomInfo = {
-      room: num,
-      start,
-      end,
-      isMinus
-    };
-    foundRooms.push(roomInfo);
-    if (isMinus) {
-      hasMinusAny = true;
-    }
-  }
-
-  if (foundRooms.length === 0) {
-    return;
-  }
-
-  // Проверяем, есть ли "опустош" после последнего номера (игнорируем регистр).
-  // "опустош" может быть частью слова (например, "опустошил"), но не отдельным словом перед другими словами.
-  const lastEnd = Math.max(...foundRooms.map(r => r.end));
-  const suffix = text.slice(lastEnd).toLowerCase();
-  const опустошIndex = suffix.indexOf('опустош');
-  const hasEmptyMark = опустошIndex !== -1;
-
   const msgTs = msg.date || Math.floor(Date.now() / 1000);
   const key = dateKeyFromUnix(msgTs);
 
-  const roomsToAdd = [];
-  const minusRooms = [];
-
-  for (const { room, isMinus } of foundRooms) {
-    // Глобальный список опустошённых номеров (без привязки к дате)
-    const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${room}`);
-
-    if (isMinus) {
-      // Сообщение вида "-500" → номер нужно убрать из списка проверенных
-      // и из списка опустошённых.
-      minusRooms.push(room);
-      await emptiedRef.remove();
-      continue;
-    }
-
-    if (hasEmptyMark) {
-      // После номера/номеров есть слово "опустуш" → помечаем как опустошенный
-      roomsToAdd.push({ room, emptied: true });
-
-      // Запоминаем номер как опустошённый в отдельной ветке
-      await emptiedRef.set(true);
-
-      // По требованию: при "опустош" ставим deadlinesStatus = ok
-      await setDeadlineStatusForRoom(room, 'ok');
-    } else {
-      // Проверяем, был ли номер ранее в списке опустошённых
-      let wasEmptied = false;
-      try {
-        const snap = await emptiedRef.once('value');
-        wasEmptied = snap.exists();
-      } catch (e) {
-        console.error('Failed to read emptied state for room', room, e.message);
-      }
-
-      // Обычный номер без спец. пометок
-      roomsToAdd.push({ room, emptied: false });
-
-      // Если номер был ранее в списке опустошённых, а теперь пришёл без подписей,
-      // убираем его из списка опустошённых.
-      await emptiedRef.remove();
-
-      // Статус сроков меняем на neutral ТОЛЬКО если он действительно был опустошён ранее
-      if (wasEmptied) {
-        await setDeadlineStatusForRoom(room, 'neutral');
-      }
-    }
-  }
-
-  // Обновляем упрощённую структуру "уже проверенных номеров" на текущую дату.
-  try {
+  if (parsed.type === 'delete') {
+    // Удаление номеров
     const checkedDayRef = db.ref(`${VK_CHECKED_ROOT}/${key}`);
-
-    // Добавляем/обновляем все номера из этого сообщения без "-"
-    for (const item of roomsToAdd) {
-      await checkedDayRef.child(item.room).set({ ts: msgTs });
+    
+    for (const room of parsed.rooms) {
+      // Проверяем, есть ли номер в checked (на сегодня)
+      const roomInCheckedSnap = await checkedDayRef.child(room).once('value');
+      const isInChecked = roomInCheckedSnap.exists();
+      
+      if (isInChecked) {
+        // Удаляем из списка проверенных на сегодня
+        await checkedDayRef.child(room).remove();
+        
+        // Удаляем из списка опустошённых (только если был в checked)
+        const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${room}`);
+        await emptiedRef.remove();
+        
+        console.log(`Deleted room ${room} from checked and emptied (was in checked)`);
+      } else {
+        console.log(`Room ${room} not in checked, skipping deletion`);
+      }
     }
-
-    // Удаляем все номера, которые пришли с "-"
-    for (const mRoom of minusRooms) {
-      await checkedDayRef.child(mRoom).remove();
-    }
-  } catch (e) {
-    console.error('Failed to update checked rooms list:', e);
-  }
-
-  // Если в сообщении был хотя бы один номер с "-", после успешного
-  // "удаления из базы" ставим лайк на это сообщение.
-  if (hasMinusAny) {
-    try {
-      await addLikeToMessage(msg.peer_id, msg.conversation_message_id || msg.id);
-    } catch (e) {
-      console.error('addLikeToMessage error:', e);
+  } else {
+    // Добавление номеров
+    const checkedDayRef = db.ref(`${VK_CHECKED_ROOT}/${key}`);
+    
+    for (const room of parsed.rooms) {
+      // Добавляем/обновляем в списке проверенных на сегодня
+      await checkedDayRef.child(room).set({ ts: msgTs });
+      
+      const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${room}`);
+      
+      if (parsed.emptied) {
+        // Помечаем как опустошённый
+        await emptiedRef.set(true);
+        await setDeadlineStatusForRoom(room, 'ok');
+        console.log(`Added room ${room} as emptied`);
+      } else {
+        // Убираем из списка опустошённых (если был)
+        await emptiedRef.remove();
+        
+        // Проверяем, был ли номер ранее в списке опустошённых
+        const snap = await emptiedRef.once('value');
+        const wasEmptied = snap.exists();
+        
+        // Если был опустошён ранее, а теперь пришёл без пометки, сбрасываем статус
+        if (wasEmptied) {
+          await setDeadlineStatusForRoom(room, 'neutral');
+          console.log(`Added room ${room} without emptied mark, reset status from emptied`);
+        } else {
+          console.log(`Added room ${room} without emptied mark`);
+        }
+      }
     }
   }
 }
@@ -409,36 +296,6 @@ async function getLongPollServer() {
   }
 
   return data.response; // { server, key, ts }
-}
-
-// Поставить "лайк" (reaction=like) на сообщение после успешного удаления номера
-async function addLikeToMessage(peerId, conversationMessageId) {
-  if (!peerId || !conversationMessageId) return;
-
-  try {
-    const params = new URLSearchParams({
-      peer_id: String(peerId),
-      conversation_message_id: String(conversationMessageId),
-      reaction: 'like',
-      access_token: VK_BOT_TOKEN,
-      v: '5.199'
-    });
-
-    const res = await fetch('https://api.vk.com/method/messages.addReaction', {
-      method: 'POST',
-      body: params
-    });
-
-    const data = await res.json();
-
-    if (data.error) {
-      console.error('VK messages.addReaction error:', data.error.error_msg || data.error);
-    } else {
-      console.log('Reaction \"like\" added to message', peerId, conversationMessageId);
-    }
-  } catch (e) {
-    console.error('Failed to add reaction to message:', e.message);
-  }
 }
 
 async function startLongPoll() {
