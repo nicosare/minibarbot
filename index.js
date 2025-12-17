@@ -258,12 +258,12 @@ async function upsertMessageRooms(msg) {
         await setDeadlineStatusForRoom(room, 'ok');
         console.log(`Added room ${room} as emptied`);
       } else {
-        // Убираем из списка опустошённых (если был)
-        await emptiedRef.remove();
-        
         // Проверяем, был ли номер ранее в списке опустошённых
         const snap = await emptiedRef.once('value');
         const wasEmptied = snap.exists();
+        
+        // Убираем из списка опустошённых (если был)
+        await emptiedRef.remove();
         
         // Если был опустошён ранее, а теперь пришёл без пометки, сбрасываем статус
         if (wasEmptied) {
