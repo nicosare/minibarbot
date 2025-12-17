@@ -206,7 +206,6 @@ async function upsertMessageRooms(msg) {
 
   console.log('Message:', msg.peer_id, msg.conversation_message_id, msg.text);
 
-  if (msg.peer_id !== PEER_ID) return;
 
   const text = msg.text || '';
   
