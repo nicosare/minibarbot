@@ -95,7 +95,7 @@ class Router {
         try {
             // Определяем базовый путь для загрузки файлов
             const basePath = window.location.pathname.includes('/minibars/') ? '/minibars' : '';
-            
+
             // Загружаем HTML страницы
             const response = await fetch(`${basePath}/pages/${route}.html`);
             if (!response.ok) {
