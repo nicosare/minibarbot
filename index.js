@@ -35,8 +35,8 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// Отдельная глобальная ветка для опустошённых номеров (без дат):
-// vkEmptiedRooms/<room>: true
+// Отдельная глобальная ветка для опустошённых номеров (с timestamp):
+// vkEmptiedRooms/<room>: { ts: <unix_timestamp> }
 const VK_EMPTIED_ROOT = 'vkEmptiedRooms';
 
 // Упрощенная структура "уже проверенных номеров" по дате:
@@ -252,15 +252,10 @@ async function upsertMessageRooms(msg) {
       const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${room}`);
       
       if (parsed.emptied) {
-        // Помечаем как опустошённый с сохранением даты и времени
-        const emptiedData = {
-          emptiedAt: msgTs,
-          emptiedAtDate: dateKeyFromUnix(msgTs),
-          emptiedAtTime: timeStringFromUnix(msgTs)
-        };
-        await emptiedRef.set(emptiedData);
+        // Помечаем как опустошённый с timestamp (такая же логика, как для vkCheckedRoomsByDate)
+        await emptiedRef.set({ ts: msgTs });
         await setDeadlineStatusForRoom(room, 'ok');
-        console.log(`Added room ${room} as emptied at ${emptiedData.emptiedAtDate} ${emptiedData.emptiedAtTime}`);
+        console.log(`Added room ${room} as emptied at ${msgTs}`);
       } else {
         // Проверяем, был ли номер ранее в списке опустошённых
         const snap = await emptiedRef.once('value');
@@ -384,7 +379,57 @@ app.get('/', (req, res) => {
   res.send('OK');
 });
 
-// Глобальный список опустошённых номеров (без привязки к дате)
+// Миграция: обновление старых записей с true на формат { ts: timestamp }
+async function migrateEmptiedRooms() {
+  try {
+    const snap = await db.ref(VK_EMPTIED_ROOT).once('value');
+    const data = snap.val() || {};
+    const updates = {};
+    let migratedCount = 0;
+    
+    // Получаем все даты из vkCheckedRoomsByDate для поиска timestamp
+    const checkedSnap = await db.ref(VK_CHECKED_ROOT).once('value');
+    const checkedData = checkedSnap.val() || {};
+    
+    for (const [room, roomData] of Object.entries(data)) {
+      // Если запись в старом формате (true), обновляем на новый формат
+      if (roomData === true || roomData === 'true') {
+        let ts = null;
+        
+        // Пытаемся найти timestamp из vkCheckedRoomsByDate
+        for (const [dateKey, dateData] of Object.entries(checkedData)) {
+          if (dateData && typeof dateData === 'object' && dateData[room]) {
+            const roomEntry = dateData[room];
+            if (roomEntry && typeof roomEntry === 'object' && typeof roomEntry.ts === 'number') {
+              ts = roomEntry.ts;
+              break;
+            }
+          }
+        }
+        
+        // Если не нашли в истории проверок, используем текущее время
+        if (!ts) {
+          ts = Math.floor(Date.now() / 1000);
+        }
+        
+        updates[room] = { ts };
+        migratedCount++;
+        console.log(`Migrating room ${room} from true to { ts: ${ts} }`);
+      }
+    }
+    
+    if (migratedCount > 0) {
+      await db.ref(VK_EMPTIED_ROOT).update(updates);
+      console.log(`Migration completed: ${migratedCount} rooms migrated`);
+    } else {
+      console.log('No rooms to migrate');
+    }
+  } catch (e) {
+    console.error('Migration error:', e.message);
+  }
+}
+
+// Глобальный список опустошённых номеров (с timestamp)
 app.get('/emptied-rooms', async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
 
@@ -393,16 +438,11 @@ app.get('/emptied-rooms', async (req, res) => {
     const data = snap.val() || {};
     const rooms = Object.keys(data).map(room => {
       const roomData = data[room];
-      // Поддержка старого формата (true) и нового формата (объект)
-      if (roomData === true) {
-        return { room, emptiedAt: null, emptiedAtDate: null, emptiedAtTime: null };
-      }
-      return {
-        room,
-        emptiedAt: roomData.emptiedAt || null,
-        emptiedAtDate: roomData.emptiedAtDate || null,
-        emptiedAtTime: roomData.emptiedAtTime || null
-      };
+      // Поддержка старого формата (true) и нового формата ({ ts: ... })
+      const ts = typeof roomData === 'object' && roomData !== null && typeof roomData.ts === 'number' 
+        ? roomData.ts 
+        : null;
+      return { room, ts };
     });
     res.json({ rooms });
   } catch (e) {
@@ -445,36 +485,13 @@ app.get('/today-rooms', async (req, res) => {
 
     const rooms = Array.from(roomToInfo.entries())
       .map(([room, info]) => {
-        const emptiedData = emptiedGlobal && emptiedGlobal[room];
-        const globallyEmptied = !!emptiedData;
-        
-        // Извлекаем данные о времени опустошения
-        let emptiedAt = null;
-        let emptiedAtDate = null;
-        let emptiedAtTime = null;
-        
-        if (emptiedData) {
-          if (emptiedData === true) {
-            // Старый формат - данных о времени нет
-            emptiedAt = null;
-            emptiedAtDate = null;
-            emptiedAtTime = null;
-          } else {
-            // Новый формат - объект с данными
-            emptiedAt = emptiedData.emptiedAt || null;
-            emptiedAtDate = emptiedData.emptiedAtDate || null;
-            emptiedAtTime = emptiedData.emptiedAtTime || null;
-          }
-        }
-        
+        const globallyEmptied =
+          emptiedGlobal && Object.prototype.hasOwnProperty.call(emptiedGlobal, room);
         return {
           room,
           time: timeStringFromUnix(info.ts),
           // Источником правды для опустошения является только глобальный список.
-          emptied: globallyEmptied,
-          emptiedAt,
-          emptiedAtDate,
-          emptiedAtTime
+          emptied: !!globallyEmptied
         };
       })
       .sort((a, b) => Number(a.room) - Number(b.room));
@@ -489,9 +506,30 @@ app.get('/today-rooms', async (req, res) => {
   }
 });
 
+// Endpoint для запуска миграции вручную
+app.post('/migrate-emptied-rooms', async (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  try {
+    await migrateEmptiedRooms();
+    res.json({ success: true, message: 'Migration completed' });
+  } catch (e) {
+    console.error('Migration endpoint error:', e.message);
+    res.status(500).json({
+      error: 'MIGRATION_ERROR',
+      message: e.message
+    });
+  }
+});
+
 // стартуем HTTP и Long Poll
 app.listen(PORT, () => {
   console.log(`HTTP server listening on port ${PORT}`);
+  
+  // Запускаем миграцию при старте сервера
+  migrateEmptiedRooms().catch(err => {
+    console.error('Failed to run migration:', err);
+  });
+  
   startLongPoll().catch(err => {
     console.error('Failed to start Long Poll:', err);
   });
