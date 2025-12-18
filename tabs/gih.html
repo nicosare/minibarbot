@@ -1,0 +1,43 @@
+<div class="card hidden" id="gih-section">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div id="gih-title-date" style="font-weight:700; font-size:16px">GIH</div>
+<div class="row"><button class="btn ghost small desktop-only" disabled="True" id="print-gih-btn" title="Печать GIH"><i class="fas fa-print"></i></button>
+<button class="btn ghost small" id="gih-sort-btn" title="Сортировать"><i class="fas fa-sort-numeric-down"></i></button>
+<button class="btn small" id="add-gih-btn"><i class="fas fa-plus"></i> Новая запись</button>
+</div>
+</div>
+<div aria-hidden="true" class="gih-form" id="gih-form">
+<div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+<input class="input" id="gih-room" placeholder="Номер комнаты" style="width:140px"/>
+<div style="flex:1">
+<div class="gih-products-area" id="gih-products-area"></div>
+</div>
+</div>
+<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+<button class="btn ghost small" id="cancel-gih">Отмена</button>
+<button class="btn small" id="save-gih">Сохранить</button>
+</div>
+</div>
+<div class="card" id="gih-summary" style="margin:8px 0;  padding:10px; cursor:pointer;">
+<div class="gih-summary-header" style="display:flex; justify-content:space-between; align-items:center;">
+<div id="gih-summary-title" style="font-weight:600; font-size:13px;">Список продуктов</div>
+<svg height="16" id="gih-summary-arrow" viewbox="0 0 24 24" width="16">
+<path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+<div class="muted" id="gih-summary-list" style="font-size:12px; line-height:1.35; margin-top:6px;"></div>
+</div>
+<div class="card" id="gih-rooms-summary" style="margin:8px 0; padding:10px; cursor:pointer;">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div id="gih-rooms-summary-title">Список номеров (<span id="rooms-saved-count">0</span>/<span id="rooms-total-count">0</span>)</div>
+<svg height="16" id="gih-rooms-summary-arrow" viewbox="0 0 24 24" width="16">
+<path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+<div class="muted" id="gih-rooms-summary-list" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; font-size:12px; line-height:1.35;"></div>
+</div>
+<div class="gih-records" id="gih-records"></div><div class="muted" id="gih-summary-list" style="font-size:14px; line-height:1.6;"></div>
+<hr id="gih-divider" style="display:none; margin:20px 0; border:none; border-top:1px solid rgba(0,0,0,0.1);"/>
+<div class="gih-records" id="gih-saved-records"></div>
+</div>
+
