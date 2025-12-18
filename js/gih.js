@@ -8,11 +8,16 @@ function initGih() {
     // Инициализация обработчиков
     initGihListeners();
 
-    // Рендеринг данных
+    // Рендерим данные сразу, а updateUIFromData обновит их когда данные загрузятся
     renderGihRecords();
     updateGIHSummary();
     updateGIHRoomsSummary();
 }
+
+// Глобальные функции для вызова из common.js
+window.renderGihRecords = renderGihRecords;
+window.updateGIHSummary = updateGIHSummary;
+window.updateGIHRoomsSummary = updateGIHRoomsSummary;
 
 function initGihData() {
     if (!appData.gihRecords) {
@@ -246,7 +251,7 @@ function renderGihRecords() {
     const container = $('#gih-records');
     if (!container) return;
 
-    if (appData.gihRecords.length === 0) {
+    if (!appData.gihRecords || appData.gihRecords.length === 0) {
         container.innerHTML = '<div style="text-align: center; color: #666; padding: 40px;">Нет записей GIH</div>';
         return;
     }
@@ -365,7 +370,7 @@ function updateGIHSummary() {
 
     // Формируем HTML-список
     const htmlParts = entries.map(([key, count]) => {
-        const name = appData.products[key] || key;
+        const name = appData.products && appData.products[key] ? appData.products[key] : key;
         return `<div><strong>${name}</strong> x${count}</div>`;
     });
 
@@ -386,8 +391,8 @@ function updateGIHRoomsSummary() {
     const saved = records.filter(r => r && r.savedAt).length; // считаем по savedAt
 
     // counters
-    if (savedEl) savedEl.textContent = String(saved);
-    if (totalEl) totalEl.textContent = String(total);
+    if (savedEl) savedEl.textContent = String(saved || 0);
+    if (totalEl) totalEl.textContent = String(total || 0);
 
     // empty state hides the block (consistently with products summary)
     if (total === 0) {

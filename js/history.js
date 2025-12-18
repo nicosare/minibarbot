@@ -294,6 +294,9 @@ function printHistory() {
     printWindow.print();
 }
 
+// Глобальная функция для вызова из common.js
+window.renderHistory = renderHistoryRecords;
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initHistory);
 } else {

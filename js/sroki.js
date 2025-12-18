@@ -371,6 +371,9 @@ function updateRoomStatus(roomData) {
     roomData.lastChecked = new Date().toISOString();
 }
 
+// Глобальная функция для вызова из common.js
+window.renderRooms = renderRooms;
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initSroki);
 } else {

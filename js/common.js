@@ -157,17 +157,46 @@ async function saveToFirebase() {
 // Load data from Firebase
 async function loadFromFirebase() {
     try {
+        console.log('Loading data from Firebase...');
         const snapshot = await database.ref('minibarData').once('value');
         const data = snapshot.val();
+        console.log('Firebase data:', data);
 
         if (data) {
             isUpdatingFromFirebase = true;
             Object.assign(appData, data);
             localStorage.setItem('hotelMinibarData', JSON.stringify(appData));
             isUpdatingFromFirebase = false;
+            console.log('Data loaded and assigned to appData');
+
+            updateUIFromData();
+        } else {
+            console.log('No data in Firebase, using localStorage');
+            // Если нет данных в Firebase, используем localStorage
+            const saved = localStorage.getItem('hotelMinibarData');
+            if (saved) {
+                try {
+                    const parsed = JSON.parse(saved);
+                    Object.assign(appData, parsed);
+                    updateUIFromData();
+                } catch (e) {
+                    console.error('Error loading from localStorage:', e);
+                }
+            }
         }
     } catch (error) {
         console.error('Error loading from Firebase:', error);
+        // Fallback to localStorage
+        const saved = localStorage.getItem('hotelMinibarData');
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                Object.assign(appData, parsed);
+                updateUIFromData();
+            } catch (e) {
+                console.error('Error loading from localStorage:', e);
+            }
+        }
     }
 }
 
@@ -188,30 +217,87 @@ if (typeof localStorage !== 'undefined') {
 function setupFirebaseListener() {
     database.ref('minibarData').on('value', (snapshot) => {
         const data = snapshot.val();
-        
+
         if (data && !isUpdatingFromFirebase) {
             console.log('Получены обновления из Firebase');
             isUpdatingFromFirebase = true;
-            
+
             const currentHistory = appData.gihHistory || [];
             Object.assign(appData, data);
-            
+
             if (currentHistory.length > 0 && (!appData.gihHistory || appData.gihHistory.length < currentHistory.length)) {
                 console.log('Восстанавливаем историю из локальной копии');
                 appData.gihHistory = currentHistory;
             }
-            
+
             localStorage.setItem('hotelMinibarData', JSON.stringify(appData));
             isUpdatingFromFirebase = false;
+
+            updateUIFromData();
         }
+    });
+}
+
+// Update UI when data changes
+function updateUIFromData() {
+    // Сортируем продукты по исходному порядку из appData.products
+    if (appData.products && typeof appData.products === 'object') {
+        const originalOrder = [
+            "twix", "jager", "gin", "rum", "cognac", "whiskey", "vodka", "pepper",
+            "redbull", "cola", "baikal", "borjomi", "white_wine", "red_wine", "apple",
+            "tomato", "corona", "stella", "gancha", "martini", "orange", "cherry",
+            "loriot", "whiskey02"
+        ];
+
+        appData.products = Object.fromEntries(
+            Object.entries(appData.products).sort((a, b) => {
+                const ia = originalOrder.indexOf(a[0]);
+                const ib = originalOrder.indexOf(b[0]);
+                // Если ключ есть в оригинале — сортируем по позиции, иначе в конец
+                if (ia === -1 && ib === -1) return a[1].localeCompare(b[1], 'ru');
+                if (ia === -1) return 1;
+                if (ib === -1) return -1;
+                return ia - ib;
+            })
+        );
+    }
+
+    // Обновляем UI если соответствующие функции существуют
+    if (typeof renderHistory === 'function') renderHistory();
+    if (typeof renderAccises === 'function') renderAccises();
+    if (typeof renderRooms === 'function') renderRooms();
+    if (typeof renderGihRecords === 'function') renderGihRecords();
+    if (typeof updateGIHSummary === 'function') updateGIHSummary();
+    if (typeof updateGIHRoomsSummary === 'function') updateGIHRoomsSummary();
+
+    if (isRendering) return;
+    isRendering = true;
+    appData.gihRecords.forEach(r => normalizeRecordProducts(r));
+    isRendering = false;
+}
+
+// Normalize record products (ensure they have proper structure)
+function normalizeRecordProducts(record) {
+    if (!record.products) record.products = [];
+    if (!Array.isArray(record.products)) {
+        record.products = [];
+    }
+    record.products = record.products.map(p => {
+        if (typeof p === 'string') {
+            return { name: p, count: 1 };
+        }
+        return p;
     });
 }
 
 // Инициализация Firebase listener при загрузке
 if (typeof window !== 'undefined') {
     window.addEventListener('DOMContentLoaded', () => {
-        setupFirebaseListener();
-        loadFromFirebase();
+        loadFromFirebase().then(() => {
+            setupFirebaseListener();
+        }).catch(() => {
+            setupFirebaseListener();
+        });
     });
 }
 

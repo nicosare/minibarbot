@@ -103,6 +103,9 @@ function setupAccisesListeners() {
 }
 
 // Автоматическая инициализация при загрузке страницы
+// Глобальные функции для вызова из common.js
+window.renderAccises = renderAccises;
+
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initAccises);
 } else {

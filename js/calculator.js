@@ -16,33 +16,15 @@ function initCalculator() {
 }
 
 function initCalculatorData() {
-    // Цены продуктов (можно расширить)
+    // Цены продуктов (расширенные цены)
     if (!window.productPrices) {
         window.productPrices = {
-            twix: 150,
-            jager: 300,
-            gin: 250,
-            rum: 280,
-            cognac: 350,
-            whiskey: 320,
-            vodka: 200,
-            pepper: 50,
-            redbull: 120,
-            cola: 100,
-            baikal: 90,
-            borjomi: 110,
-            white_wine: 180,
-            red_wine: 200,
-            apple: 80,
-            tomato: 60,
-            corona: 160,
-            stella: 160,
-            gancha: 220,
-            martini: 240,
-            orange: 70,
-            cherry: 75,
-            loriot: 300,
-            whiskey02: 160
+            twix: 150, jager: 300, gin: 250, rum: 280, cognac: 350,
+            whiskey: 320, vodka: 200, pepper: 50, redbull: 120,
+            cola: 100, baikal: 90, borjomi: 110, white_wine: 180,
+            red_wine: 200, apple: 80, tomato: 60, corona: 160,
+            stella: 160, gancha: 220, martini: 240, orange: 70,
+            cherry: 75, loriot: 300, whiskey02: 160
         };
     }
 
@@ -64,37 +46,35 @@ function renderCalculatorProducts() {
     const container = $('#calc-chips');
     if (!container) return;
 
-    const products = Object.entries(appData.products).map(([key, name]) => ({
-        key,
-        name,
-        emoji: PRODUCT_EMOJIS[key] || '📦',
-        price: window.productPrices[key] || 0
-    }));
+    const products = getStandardProducts();
 
-    let html = '';
+    let html = '<div style="display: flex; flex-wrap: wrap; gap: 8px;">';
 
     products.forEach(product => {
         const count = window.selectedProducts[product.key] || 0;
-        const isSelected = count > 0;
+        const price = window.productPrices[product.key] || 0;
+        const totalPrice = price * count;
 
         html += `
-            <div class="calc-chip${isSelected ? ' selected' : ''}" data-product="${product.key}">
-                <div class="calc-label">
-                    <span style="font-size: 18px;">${product.emoji}</span>
-                    <span>${product.name}</span>
-                    <span class="calc-price">${product.price} ₽</span>
+            <div class="product-btn${count > 0 ? ' active' : ''}" data-product="${product.key}">
+                <div class="btn-text">
+                    <div style="font-size: 16px;">${product.emoji}</div>
+                    <div style="font-size: 12px; margin-top: 2px;">${product.name}</div>
+                    ${price > 0 ? `<div style="font-size: 10px; color: var(--muted);">${price}₽</div>` : ''}
                 </div>
-                <div class="calc-count">${count || ''}</div>
+                ${count > 0 ? `<div class="product-count">${count}</div>` : '<div class="product-count"></div>'}
+                ${count > 1 ? `<div style="position: absolute; bottom: 2px; right: 2px; font-size: 9px; color: var(--accent); font-weight: bold;">${totalPrice}₽</div>` : ''}
             </div>
         `;
     });
 
+    html += '</div>';
     container.innerHTML = html;
 
     // Добавление обработчиков кликов
-    $$('.calc-chip').forEach(chip => {
-        chip.addEventListener('click', () => {
-            const productKey = chip.getAttribute('data-product');
+    $$('.product-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const productKey = btn.getAttribute('data-product');
             toggleCalculatorProduct(productKey);
         });
     });
@@ -139,7 +119,7 @@ function updateCalculatorSelected() {
             const name = appData.products[key] || key;
             const price = window.productPrices[key] || 0;
             const totalPrice = price * count;
-            return `${name}: ${count} × ${price} ₽ = ${totalPrice} ₽`;
+            return `${name} × ${count} = ${totalPrice} ₽`;
         });
 
     if (selectedItems.length === 0) {
