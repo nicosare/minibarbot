@@ -252,10 +252,15 @@ async function upsertMessageRooms(msg) {
       const emptiedRef = db.ref(`${VK_EMPTIED_ROOT}/${room}`);
       
       if (parsed.emptied) {
-        // Помечаем как опустошённый
-        await emptiedRef.set(true);
+        // Помечаем как опустошённый с сохранением даты и времени
+        const emptiedData = {
+          emptiedAt: msgTs,
+          emptiedAtDate: dateKeyFromUnix(msgTs),
+          emptiedAtTime: timeStringFromUnix(msgTs)
+        };
+        await emptiedRef.set(emptiedData);
         await setDeadlineStatusForRoom(room, 'ok');
-        console.log(`Added room ${room} as emptied`);
+        console.log(`Added room ${room} as emptied at ${emptiedData.emptiedAtDate} ${emptiedData.emptiedAtTime}`);
       } else {
         // Проверяем, был ли номер ранее в списке опустошённых
         const snap = await emptiedRef.once('value');
@@ -386,7 +391,19 @@ app.get('/emptied-rooms', async (req, res) => {
   try {
     const snap = await db.ref(VK_EMPTIED_ROOT).once('value');
     const data = snap.val() || {};
-    const rooms = Object.keys(data);
+    const rooms = Object.keys(data).map(room => {
+      const roomData = data[room];
+      // Поддержка старого формата (true) и нового формата (объект)
+      if (roomData === true) {
+        return { room, emptiedAt: null, emptiedAtDate: null, emptiedAtTime: null };
+      }
+      return {
+        room,
+        emptiedAt: roomData.emptiedAt || null,
+        emptiedAtDate: roomData.emptiedAtDate || null,
+        emptiedAtTime: roomData.emptiedAtTime || null
+      };
+    });
     res.json({ rooms });
   } catch (e) {
     console.error('Firebase read error (emptied-rooms):', e.message);
@@ -428,13 +445,36 @@ app.get('/today-rooms', async (req, res) => {
 
     const rooms = Array.from(roomToInfo.entries())
       .map(([room, info]) => {
-        const globallyEmptied =
-          emptiedGlobal && Object.prototype.hasOwnProperty.call(emptiedGlobal, room);
+        const emptiedData = emptiedGlobal && emptiedGlobal[room];
+        const globallyEmptied = !!emptiedData;
+        
+        // Извлекаем данные о времени опустошения
+        let emptiedAt = null;
+        let emptiedAtDate = null;
+        let emptiedAtTime = null;
+        
+        if (emptiedData) {
+          if (emptiedData === true) {
+            // Старый формат - данных о времени нет
+            emptiedAt = null;
+            emptiedAtDate = null;
+            emptiedAtTime = null;
+          } else {
+            // Новый формат - объект с данными
+            emptiedAt = emptiedData.emptiedAt || null;
+            emptiedAtDate = emptiedData.emptiedAtDate || null;
+            emptiedAtTime = emptiedData.emptiedAtTime || null;
+          }
+        }
+        
         return {
           room,
           time: timeStringFromUnix(info.ts),
           // Источником правды для опустошения является только глобальный список.
-          emptied: !!globallyEmptied
+          emptied: globallyEmptied,
+          emptiedAt,
+          emptiedAtDate,
+          emptiedAtTime
         };
       })
       .sort((a, b) => Number(a.room) - Number(b.room));
