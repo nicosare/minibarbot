@@ -2792,8 +2792,265 @@ min-height: 18px;
     <div class="mb-burger-item" data-tab="settings"><i class="fas fa-cog"></i><span>Настройки</span></div>
 </div>
 </div>
-<!-- Контейнер для динамически загружаемых вкладок -->
-<div id="tabs-container"></div>
+<div class="card" id="accises-section">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div>
+<div style="font-weight:700; font-size:16px">Акцизы</div>
+</div>
+<div class="row">
+<div class="muted">Всего: <strong id="total-accises">0</strong></div>
+<div class="muted">Символов: <strong id="total-chars">0</strong></div>
+<button class="btn ghost small" id="copy-accises" title="Копировать все валидные акцизы"><i class="fas fa-copy"></i></button>
+</div>
+</div>
+<div id="accises-list" style="margin-top:12px;"></div>
+<div style="margin-top:12px; display:flex; gap:10px; align-items:center;">
+</div>
+</div>
+<div class="card hidden" id="sroki-section">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div style="font-weight:700; font-size:16px">Сроки</div>
+<div class="row desktop-only" style="gap:12px; align-items:center;">
+<span id="deadlines-selected-count" style="font-size:13px; color:var(--muted); display:none;">Выбрано номеров: <strong id="deadlines-selected-number">0</strong></span>
+<button class="btn ghost small" id="deadlines-select-mode-btn" title="Режим выбора номеров"><i class="fas fa-check-square"></i> Выбрать номера</button>
+<button class="btn ghost small" id="deadlines-print-btn" title="Печать выбранных номеров" style="display:none;"><i class="fas fa-print"></i> Печать</button>
+<button class="btn small" id="deadlines-stats-btn" title="Статистика по номерам Сроки"><i class="fas fa-chart-pie"></i> Статистика</button>
+<button class="btn ghost small" id="deadlines-reset-btn" title="Сбросить все номера"><i class="fas fa-undo"></i></button>
+</div>
+<div class="row mobile-only" style="gap:8px; align-items:center; justify-content:flex-end;">
+<button class="btn small" id="deadlines-stats-btn-mobile" title="Статистика по номерам Сроки"><i class="fas fa-chart-pie"></i> Статистика</button>
+<button class="btn ghost small" id="deadlines-reset-btn-mobile" title="Сбросить все номера"><i class="fas fa-undo"></i></button>
+</div>
+</div>
+<div class="rooms-grid" id="rooms-grid"></div>
+</div>
+<div class="card hidden" id="gih-section">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div id="gih-title-date" style="font-weight:700; font-size:16px">GIH</div>
+<div class="row"><button class="btn ghost small desktop-only" disabled="True" id="print-gih-btn" title="Печать GIH"><i class="fas fa-print"></i></button>
+<button class="btn ghost small" id="gih-sort-btn" title="Сортировать"><i class="fas fa-sort-numeric-down"></i></button>
+<button class="btn small" id="add-gih-btn"><i class="fas fa-plus"></i> Новая запись</button>
+</div>
+</div>
+<div aria-hidden="true" class="gih-form" id="gih-form">
+<div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+<input class="input" id="gih-room" placeholder="Номер комнаты" style="width:140px"/>
+<div style="flex:1">
+<div class="gih-products-area" id="gih-products-area"></div>
+</div>
+</div>
+<div style="display:flex; justify-content:flex-end; gap:8px; margin-top:12px;">
+<button class="btn ghost small" id="cancel-gih">Отмена</button>
+<button class="btn small" id="save-gih">Сохранить</button>
+</div>
+</div>
+<div class="card" id="gih-summary" style="margin:8px 0;  padding:10px; cursor:pointer;">
+<div class="gih-summary-header" style="display:flex; justify-content:space-between; align-items:center;">
+<div id="gih-summary-title" style="font-weight:600; font-size:13px;">Список продуктов</div>
+<svg height="16" id="gih-summary-arrow" viewbox="0 0 24 24" width="16">
+<path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+<div class="muted" id="gih-summary-list" style="font-size:12px; line-height:1.35; margin-top:6px;"></div>
+</div>
+<div class="card" id="gih-rooms-summary" style="margin:8px 0; padding:10px; cursor:pointer;">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div id="gih-rooms-summary-title">Список номеров (<span id="rooms-saved-count">0</span>/<span id="rooms-total-count">0</span>)</div>
+<svg height="16" id="gih-rooms-summary-arrow" viewbox="0 0 24 24" width="16">
+<path d="M7 10l5 5 5-5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path>
+</svg>
+</div>
+<div class="muted" id="gih-rooms-summary-list" style="display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; font-size:12px; line-height:1.35;"></div>
+</div>
+<div class="gih-records" id="gih-records"></div><div class="muted" id="gih-summary-list" style="font-size:14px; line-height:1.6;"></div>
+<hr id="gih-divider" style="display:none; margin:20px 0; border:none; border-top:1px solid rgba(0,0,0,0.1);"/>
+<div class="gih-records" id="gih-saved-records"></div>
+</div>
+<!-- ==== Настройки ==== -->
+<div class="card hidden" id="settings-section">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div style="font-weight:700; font-size:16px">Настройки приложения</div>
+</div>
+<div style="margin-top:15px;">
+<p>Здесь появятся настройки:</p>
+<ul style="margin:10px 0 0 20px">
+<li>Синхронизация</li>
+<li>Внешний вид</li>
+<li>Управление данными</li>
+<li>Резервное копирование</li>
+</ul>
+</div>
+</div>
+<!-- ==== Обучение ==== -->
+<div class="card hidden" id="learning-section">
+<div style="display:flex; justify-content:space-between; align-items:center;">
+<div style="font-weight:700; font-size:16px">Обучение</div>
+</div>
+<div style="margin-top:15px;">
+<div class="accordion">
+<!-- Введение -->
+<div class="accordion-item">
+<div class="accordion-header">1. Введение <i class="fas fa-chevron-right"></i></div>
+<div class="accordion-content">
+<div class="accordion-subitem">1.1 Знакомство с отелем</div>
+<div class="accordion-subitem">1.2 Стандарты обслуживания</div>
+<div class="accordion-subitem">1.3 Основные обязанности</div>
+</div>
+</div>
+<!-- Детали работы -->
+<div class="accordion-item">
+<div class="accordion-header">2. Детали работы <i class="fas fa-chevron-right"></i></div>
+<div class="accordion-content">
+<div class="accordion-subitem">2.1 Порядок обхода номеров</div>
+<div class="accordion-subitem" style="padding-left:28px;">2.1.1 Arrivals</div>
+<div class="accordion-subitem" style="padding-left:28px;">2.1.2 Departures</div>
+<div class="accordion-subitem" style="padding-left:28px;">2.1.3 GIH</div>
+<div class="accordion-subitem">2.2 Проверка минибара</div>
+<div class="accordion-subitem" style="padding-left:28px;">2.2.1 Продукция</div>
+<div class="accordion-subitem" style="padding-left:28px;">2.2.2 Расположение продуктов</div>
+<div class="accordion-subitem" style="padding-left:28px;">2.2.3 Порядок проверки</div>
+<div class="accordion-subitem">2.3 Сканирование акциз</div>
+<div class="accordion-subitem">2.4 Контроль сроков годности</div>
+</div>
+</div>
+<!-- Приложение -->
+<div class="accordion-item">
+<div class="accordion-header">3. Приложение <i class="fas fa-chevron-right"></i></div>
+<div class="accordion-content">
+<div class="accordion-subitem">3.1 Акцизы</div>
+<div class="accordion-subitem">3.2 Сроки</div>
+<div class="accordion-subitem">3.3 GIH</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- ==== История ==== -->
+<div class="card hidden" id="history-section">
+<!-- Заголовок + поиск -->
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+<div style="font-weight:700; font-size:16px">История</div><div class="row" style="align-items:center; gap:6px;"><div id="history-search-wrapper" style="display:flex; align-items:center; gap:6px;">
+<button class="btn ghost small" id="history-search-clear" style="display:none; min-width:32px; height:32px; padding:0; display:inline-flex; align-items:center; justify-content:center;">
+<i class="fas fa-times"></i>
+</button>
+<input id="history-search-input" placeholder="Номер" style="width:0; opacity:0; transition:width .25s, opacity .25s; border:1px solid rgba(0,0,0,.1); border-radius:8px; padding:0 8px; height:32px; font-size:14px;" type="text"/>
+<button class="btn ghost small" id="history-search-btn" style="min-width:32px; height:32px; padding:0; display:inline-flex; align-items:center; justify-content:center;" title="Поиск">
+<i class="fas fa-search"></i>
+</button>
+</div><button class="btn ghost small desktop-only" id="print-history-btn" title="Печать"><i class="fas fa-print"></i></button></div>
+<!-- Блок поиска -->
+</div>
+<!-- Контроллер даты -->
+<div id="history-date-row" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:15px; gap:8px; width: 100%;">
+<button class="btn ghost small" id="history-prev-day" style="min-width:32px; padding:6px;">
+<i class="fas fa-chevron-left" style="font-size:12px;"></i>
+</button>
+<div id="history-current-date" style="flex:1; text-align:center; font-weight:600; font-size:14px; cursor:pointer; padding:8px; border-radius:8px; background:rgba(0,0,0,0.03); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
+<!-- текст даты вставится скриптом -->
+</div>
+<button class="btn ghost small" disabled="" id="history-next-day" style="min-width:32px; padding:6px;">
+<i class="fas fa-chevron-right" style="font-size:12px;"></i>
+</button>
+</div>
+<!-- Список записей -->
+<div id="history-list"></div>
+</div>
+<!-- ==== Депатчеры ==== -->
+<!-- ==== Депатчеры ==== -->
+<div class="card hidden" id="dispatchers-section">
+    <!-- Заголовок и кнопка выбора файла (для десктопной версии) -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+        <div style="font-weight:700; font-size:16px">Депатчеры</div>
+        <!-- Кнопка сортировки (для всех версий) -->
+        <divstyle="display:flex; gap:8px; align-items:center;">
+            <button class="mobile-only btn ghost small" id="dispatchers-sort-toggle" style="white-space: nowrap;">
+                <i class="fas fa-sort"></i> <span id="dispatchers-sort-label">По времени</span>
+            </button>
+            <!-- Кнопка выбора файла только для десктопной версии -->
+            <div class="desktop-only" style="display:flex; gap:8px; align-items:center;">
+                <input type="file" id="dispatchers-pdfFile" accept=".pdf" style="display:none;"/>
+                <span id="dispatchers-fileName" class="muted" style="font-size:13px; margin-right:8px;"></span>
+                <button class="btn" id="dispatchers-selectFileBtn"><i class="fas fa-upload"></i> Выбрать файл</button>
+            </div>
+        
+    </div>
+    
+    <!-- Инструкции (только для десктопной версии) -->
+    <div class="desktop-only">
+        <div class="instructions" style="background:rgba(39,103,73,0.08); padding:15px; border-radius:10px; margin-bottom:15px;">
+            <h3 style="margin:0 0 10px 0; font-size:14px; font-weight:600;">Инструкция:</h3>
+            <ol style="margin:0; padding-left:20px; font-size:13px; line-height:1.6;">
+                <li>Выгрузите депатчеры в Opera и сохраните файл в папке 04 MB</li>
+                <li>Нажмите кнопку "Выбрать файл" и выберите файл OperaPrint.pdf</li>
+                <li>В результатах: один клик - исключить жилой номер, двойной клик - пометить номер на заезд</li>
+                <li>Нажмите "Выгрузить депатчеры" для печати итогового списка</li>
+            </ol>
+            <div class="file-path" style="font-family:monospace; background:rgba(15,23,36,0.06); padding:8px; border-radius:8px; margin-top:12px; font-size:12px;">
+                <div style="margin-bottom: 8px; font-weight: 600;">Путь к файлу:</div>
+                <button class="copy-text onclick="copyText('G:\\Food and Beverage\\F&B Service\\Outlets\\Room Service\\04 MB\\OperaPrint.pdf')">
+                    G:\Food and Beverage\F&B Service\Outlets\Room Service\04 MB\OperaPrint.pdf
+                  </button>
+            </div>
+        </div>
+    </div>
+    
+    
+    <!-- Автоматически загружаемые номера из беседы -->
+        <div class="card" style="margin-bottom:15px;" id="dispatchers-today-rooms">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+        <div id="dispatchers-today-rooms-title" style="font-weight:600; font-size:14px; padding:12px;">Уже проверено (0):</div>
+        <button class="desktop-only btn ghost small" id="dispatchers-sort-toggle-mobile" style="white-space: nowrap;">
+            <i class="fas fa-sort"></i> <span id="dispatchers-sort-label-mobile">По времени</span>
+        </button>
+        </div>
+        <div id="dispatchers-today-rooms-status">Загрузка текущего списка...</div>
+        <div id="dispatchers-today-rooms-list"></div>
+    </div>
+    
+    <!-- Таблица номеров комнат (только для мобильной версии, скрыта) -->
+    <div class="mobile-only" style="display:none;">
+        <div style="font-weight:600; font-size:14px; margin-bottom:10px;">Таблица номеров комнат</div>
+        <div id="dispatchers-roomsGrid"></div>
+    </div>
+    
+    <!-- Счетчик выделенных номеров для десктопной версии (уже есть в selection-controls) -->
+    
+    <!-- Кнопки обработки (только для десктопной версии) -->
+    <div class="desktop-only">
+        <div class="card" id="dispatchers-result">
+            <p class="muted" style="text-align:center; padding:20px;">Результаты появятся здесь после обработки файла.</p>
+        </div>
+    </div>
+</div>
+<!-- ==== Пустые (отдельная вкладка) ==== -->
+<div class="card hidden" id="emptied-section">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+        <div style="font-weight:700; font-size:16px">Пустые</div>
+        <div class="row" style="gap:8px; align-items:center;">
+            <div class="muted" style="font-size:13px;">Всего: <strong id="emptied-total-count">0</strong></div>
+            <button class="btn ghost small" id="emptied-sort-toggle" style="white-space: nowrap;">
+                <i class="fas fa-sort"></i> <span id="emptied-sort-label">По времени</span>
+            </button>
+        </div>
+    </div>
+    <div id="emptied-status" style="margin-bottom:12px; color:var(--muted); font-size:13px;">Загрузка списка пустых номеров...</div>
+    <div id="emptied-rooms-list"></div>
+</div>
+<!-- ==== Калькулятор (отдельная вкладка) ==== -->
+<div class="card" id="calculator-section" class="hidden">
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+<div style="font-weight:700; font-size:16px">Калькулятор</div>
+<div class="row" style="gap:10px; align-items:center;">
+<div class="muted" style="font-size:14px;">Итого: <strong id="calc-total">0 ₽</strong></div>
+<button class="btn ghost small" id="calc-reset">Сбросить</button>
+</div>
+</div>
+<div id="calc-chips" class="products-wrap" style="max-height:none;"></div>
+<div style="margin-top:12px;">
+<div style="font-weight:600; font-size:14px; margin-bottom:6px;">Выбрано</div>
+<div id="calc-selected" class="muted" style="font-size:13px; line-height:1.6;"></div>
+</div>
+</div>
 <!-- MOBILE: bottom navigation duplicate (visible on small screens) -->
 <div aria-hidden="true" class="bottom-nav" id="bottomNav">
 <!-- Mobile connection indicator -->
@@ -8880,141 +9137,6 @@ function escapeHtml(str) {
             setTimeout(initEmptied, 100);
         }
     }
-})();
-</script>
-<!-- Скрипт для динамической загрузки вкладок -->
-<script>
-(function() {
-    const tabsContainer = document.getElementById('tabs-container');
-    if (!tabsContainer) {
-        console.error('Tabs container not found');
-        return;
-    }
-    
-    const tabs = ['accises', 'dispatchers', 'sroki', 'history', 'gih', 'emptied', 'calculator', 'learning', 'settings'];
-    const loadedTabs = new Map();
-    
-    // Функция загрузки вкладки
-    async function loadTab(tabName) {
-        // Если вкладка уже загружена, просто показываем её
-        if (loadedTabs.has(tabName)) {
-            const tabElement = loadedTabs.get(tabName);
-            // Скрываем все вкладки
-            tabs.forEach(t => {
-                const el = document.getElementById(t + '-section');
-                if (el) el.classList.add('hidden');
-            });
-            // Показываем нужную вкладку
-            if (tabElement) {
-                tabElement.classList.remove('hidden');
-            }
-            return tabElement;
-        }
-        
-        try {
-            const response = await fetch(`tabs/${tabName}.html`);
-            if (!response.ok) {
-                console.error(`Failed to load tab ${tabName}:`, response.statusText);
-                return null;
-            }
-            
-            const html = await response.text();
-            const tempDiv = document.createElement('div');
-            tempDiv.innerHTML = html;
-            
-            // Находим секцию вкладки
-            const tabSection = tempDiv.querySelector(`#${tabName}-section`);
-            if (!tabSection) {
-                console.error(`Tab section not found: ${tabName}-section`);
-                return null;
-            }
-            
-            // Скрываем все вкладки
-            tabs.forEach(t => {
-                const el = document.getElementById(t + '-section');
-                if (el) el.classList.add('hidden');
-            });
-            
-            // Добавляем новую вкладку в контейнер
-            tabsContainer.appendChild(tabSection);
-            loadedTabs.set(tabName, tabSection);
-            
-            return tabSection;
-            
-        } catch (error) {
-            console.error(`Error loading tab ${tabName}:`, error);
-            return null;
-        }
-    }
-    
-    // Функция показа вкладки
-    async function showTabContent(tab) {
-        await loadTab(tab);
-        
-        // Синхронизация навигации
-        document.querySelectorAll('.nav-item, .b-item, .mb-burger-item').forEach(n => {
-            n.classList.toggle('active', n.dataset.tab === tab);
-        });
-        
-        localStorage.setItem('minibar-active-tab', tab);
-        
-        // Инициализация вкладки, если есть специальная функция
-        setTimeout(() => {
-            if (tab === 'dispatchers' && typeof window.dispatchersInit === 'function') {
-                window.dispatchersInit();
-            }
-            if (tab === 'emptied' && typeof window.emptiedInit === 'function') {
-                window.emptiedInit();
-            }
-        }, 100);
-    }
-    
-    // Сохраняем оригинальную функцию showTab, если она существует
-    const originalShowTab = window.showTab;
-    
-    // Переопределяем функцию showTab
-    window.showTab = async function(tab) {
-        // Вызываем оригинальную функцию, если она есть
-        if (originalShowTab && typeof originalShowTab === 'function') {
-            try {
-                originalShowTab(tab);
-            } catch (e) {
-                console.warn('Error in original showTab:', e);
-            }
-        }
-        
-        // Загружаем и показываем вкладку
-        await showTabContent(tab);
-    };
-    
-    // Загружаем все вкладки при загрузке страницы
-    async function loadAllTabs() {
-        const promises = tabs.map(tab => loadTab(tab));
-        await Promise.all(promises);
-        
-        // Показываем активную вкладку
-        const activeTab = localStorage.getItem('minibar-active-tab') || 'accises';
-        showTabContent(activeTab);
-    }
-    
-    // Загружаем вкладки при готовности DOM
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', loadAllTabs);
-    } else {
-        loadAllTabs();
-    }
-    
-    // Обработка кликов по вкладкам
-    document.addEventListener('click', (e) => {
-        const tabElement = e.target.closest('[data-tab]');
-        if (tabElement) {
-            const tab = tabElement.dataset.tab;
-            if (tab) {
-                e.preventDefault();
-                window.showTab(tab);
-            }
-        }
-    });
 })();
 </script>
 </div>
