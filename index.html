@@ -2516,8 +2516,34 @@ body.custom-calendar-open input[type="date"] {
     margin-bottom: 0;
 }
 
+/* Стили для списка пустых номеров */
+#emptied-rooms-list {
+    margin-top: 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+/* Стили для группировки по этажам */
+#emptied-rooms-list.floor-mode {
+    display: block;
+    flex-direction: column;
+}
+
+#emptied-rooms-list.floor-mode > .dispatchers-floor-section {
+    width: 100%;
+    margin-bottom: 16px;
+    display: block;
+}
+
+#emptied-rooms-list.floor-mode > .dispatchers-floor-section:last-child {
+    margin-bottom: 0;
+}
+
 .dispatchers-today-room-card {
     min-width: 72px;
+    max-width: 72px;
+    width: 72px;
     min-height: 50px;
     padding: 10px;
     border-radius: 10px;
@@ -2530,6 +2556,7 @@ body.custom-calendar-open input[type="date"] {
     position: relative;
     text-align: center;
     font-weight: 700;
+    flex-shrink: 0;
 }
 
 .dispatchers-today-room-number {
@@ -2740,6 +2767,7 @@ min-height: 18px;
 <div class="nav-item" data-tab="gih"><i class="fas fa-users"></i><span>GIH</span></div>
 <div class="nav-separator"></div>
 <!-- ADDED: extra desktop tabs (above connection status) -->
+<div class="nav-item extra" data-tab="emptied"><i class="fas fa-box-open"></i><span>Пустые</span></div>
 <div class="nav-item extra" data-tab="calculator"><i class="fas fa-calculator"></i><span>Калькулятор</span></div>
 <div class="nav-item extra" data-tab="learning"><i class="fas fa-book-open"></i><span>Обучение</span></div>
 <div class="nav-item extra" data-tab="settings"><i class="fas fa-cog"></i><span>Настройки</span></div>
@@ -2758,6 +2786,7 @@ min-height: 18px;
 <!-- сюда перенесём #mobileConnectionIndicator на мобильной ширине -->
 </div>
 <div class="mb-burger-menu" id="mbBurgerMenu" role="menu">
+    <div class="mb-burger-item" data-tab="emptied"><i class="fas fa-box-open"></i><span>Пустые</span></div>
     <div class="mb-burger-item" data-tab="calculator"><i class="fas fa-calculator"></i><span>Калькулятор</span></div>
     <div class="mb-burger-item" data-tab="learning"><i class="fas fa-book-open"></i><span>Обучение</span></div>
     <div class="mb-burger-item" data-tab="settings"><i class="fas fa-cog"></i><span>Настройки</span></div>
@@ -2992,6 +3021,20 @@ min-height: 18px;
             <p class="muted" style="text-align:center; padding:20px;">Результаты появятся здесь после обработки файла.</p>
         </div>
     </div>
+</div>
+<!-- ==== Пустые (отдельная вкладка) ==== -->
+<div class="card hidden" id="emptied-section">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+        <div style="font-weight:700; font-size:16px">Пустые</div>
+        <div class="row" style="gap:8px; align-items:center;">
+            <div class="muted" style="font-size:13px;">Всего: <strong id="emptied-total-count">0</strong></div>
+            <button class="btn ghost small" id="emptied-sort-toggle" style="white-space: nowrap;">
+                <i class="fas fa-sort"></i> <span id="emptied-sort-label">По времени</span>
+            </button>
+        </div>
+    </div>
+    <div id="emptied-status" style="margin-bottom:12px; color:var(--muted); font-size:13px;">Загрузка списка пустых номеров...</div>
+    <div id="emptied-rooms-list"></div>
 </div>
 <!-- ==== Калькулятор (отдельная вкладка) ==== -->
 <div class="card" id="calculator-section" class="hidden">
@@ -5861,6 +5904,7 @@ function restoreHistoryIfNeeded() {
                         excises: 'Акцизы',
                         deadlines: 'Сроки',
                         gih: 'GIH',
+                        emptied: 'Пустые',
                         settings: 'Настройки',
                         learning: 'Обучение',
                         history: 'История'
@@ -6304,6 +6348,7 @@ function restoreHistoryIfNeeded() {
                         sroki: $('#sroki-section'),
                         gih: $('#gih-section'),
                         dispatchers: $('#dispatchers-section'),
+                        emptied: $('#emptied-section'),
                         settings: $('#settings-section'),
                         learning: $('#learning-section'),
                         practice: $('#practice-section'),
@@ -6332,6 +6377,10 @@ function restoreHistoryIfNeeded() {
                         /* Инициализируем депатчеры при переключении на вкладку */
                         if (tab === 'dispatchers' && typeof window.dispatchersInit === 'function') {
                             setTimeout(window.dispatchersInit, 100);
+                        }
+                        /* Инициализируем пустые при переключении на вкладку */
+                        if (tab === 'emptied' && typeof window.emptiedInit === 'function') {
+                            setTimeout(window.emptiedInit, 100);
                         }
                     }
 
@@ -6388,7 +6437,7 @@ function restoreHistoryIfNeeded() {
                     const $$ = s => Array.from(document.querySelectorAll(s));
 
                     const sections = [
-                        'accises-section', 'sroki-section', 'gih-section', 'dispatchers-section', 'settings-section', 'learning-section', 'history-section'
+                        'accises-section', 'sroki-section', 'gih-section', 'dispatchers-section', 'emptied-section', 'settings-section', 'learning-section', 'history-section'
                     ];
 
                     function hideAll() {
@@ -6666,7 +6715,7 @@ function restoreHistoryIfNeeded() {
                 (function () {
                     const STORAGE_KEY = 'minibar-active-tab';
                     const sections = [
-                        'accises', 'sroki', 'gih',
+                        'accises', 'sroki', 'gih', 'dispatchers', 'emptied',
                         'settings', 'learning', 'history'
                     ];
 
@@ -7275,7 +7324,7 @@ document.addEventListener('DOMContentLoaded', () => {
 <script>
                 (function(){
   const sections = [
-    'accises','sroki','gih','dispatchers','settings','learning','practice','history','calculator'
+    'accises','sroki','gih','dispatchers','emptied','settings','learning','practice','history','calculator'
   ];
   function hideAll(){
     sections.forEach(name=>{
@@ -8792,6 +8841,302 @@ function escapeHtml(str) {
             }, 50);
         }
     };
+})();
+
+// ==== ПУСТЫЕ: Инициализация и загрузка данных ====
+(function() {
+    const API_BASE = 'https://minibarbot.onrender.com';
+    const EMPTIED_URL = API_BASE + '/emptied-rooms';
+    
+    let emptiedRoomsInterval = null;
+    
+    // Функция для форматирования времени из timestamp (как в Депатчерах)
+    function timeStringFromUnix(tsSec) {
+        if (!tsSec || typeof tsSec !== 'number') return null;
+        // UTC+5 (Екатеринбург)
+        const offsetMs = 5 * 60 * 60 * 1000;
+        const d = new Date(tsSec * 1000 + offsetMs);
+        const h = String(d.getUTCHours()).padStart(2, '0');
+        const m = String(d.getUTCMinutes()).padStart(2, '0');
+        return `${h}:${m}`;
+    }
+    
+    // Функция для форматирования даты и времени из timestamp
+    function dateTimeStringFromUnix(tsSec) {
+        if (!tsSec || typeof tsSec !== 'number') return null;
+        // UTC+5 (Екатеринбург)
+        const offsetMs = 5 * 60 * 60 * 1000;
+        const d = new Date(tsSec * 1000 + offsetMs);
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const h = String(d.getUTCHours()).padStart(2, '0');
+        const m = String(d.getUTCMinutes()).padStart(2, '0');
+        return `${day}.${month} ${h}:${m}`;
+    }
+    
+    // Функция для парсинга времени для сортировки
+    function parseTime(timeStr) {
+        if (!timeStr) return 0;
+        const parts = timeStr.split(':');
+        if (parts.length !== 2) return 0;
+        return parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    }
+    
+    // Режим сортировки: 'time' или 'floor'
+    let emptiedSortMode = localStorage.getItem('emptiedSortMode') || 'time';
+    
+    // Функция для группировки номеров по этажам
+    function groupEmptiedRoomsByFloor(rooms) {
+        const floors = {};
+        rooms.forEach(roomData => {
+            const roomStr = String(roomData.room || roomData);
+            let floor;
+            if (roomStr.length === 3) {
+                floor = roomStr.charAt(0);
+            } else {
+                floor = roomStr.substring(0, 2);
+            }
+            if (!floors[floor]) {
+                floors[floor] = [];
+            }
+            floors[floor].push(roomData);
+        });
+        return floors;
+    }
+    
+    // Функция для отображения опустошённых номеров
+    function renderEmptiedRooms(rooms) {
+        const statusEl = document.getElementById('emptied-status');
+        const roomsEl = document.getElementById('emptied-rooms-list');
+        const totalCountEl = document.getElementById('emptied-total-count');
+        
+        if (!statusEl || !roomsEl || !totalCountEl) return;
+        
+        if (!rooms || rooms.length === 0) {
+            statusEl.textContent = 'Нет пустых номеров';
+            roomsEl.innerHTML = '';
+            totalCountEl.textContent = '0';
+            return;
+        }
+        
+        statusEl.textContent = '';
+        totalCountEl.textContent = String(rooms.length);
+        
+        // Сохраняем данные для перерисовки при смене режима сортировки
+        window.emptiedRoomsData = rooms;
+        
+        // Подготавливаем данные с временем
+        const roomsWithTime = rooms.map(roomData => {
+            const room = String(roomData.room || roomData);
+            const ts = roomData.ts || null;
+            const time = dateTimeStringFromUnix(ts);
+            return { room, ts, time };
+        });
+        
+        if (emptiedSortMode === 'floor') {
+            // Группировка по этажам
+            roomsEl.classList.add('floor-mode');
+            const floors = groupEmptiedRoomsByFloor(roomsWithTime);
+            const sortedFloors = Object.keys(floors).sort((a, b) => {
+                const ai = parseInt(a, 10);
+                const bi = parseInt(b, 10);
+                if (Number.isNaN(ai) && Number.isNaN(bi)) return a.localeCompare(b, 'ru');
+                if (Number.isNaN(ai)) return 1;
+                if (Number.isNaN(bi)) return -1;
+                return ai - bi;
+            });
+            
+            roomsEl.innerHTML = '';
+            
+            sortedFloors.forEach(floor => {
+                const floorSection = document.createElement('div');
+                floorSection.className = 'dispatchers-floor-section';
+                floorSection.style.marginBottom = '12px';
+                
+                const floorTitle = document.createElement('div');
+                floorTitle.className = 'dispatchers-floor-title';
+                floorTitle.textContent = `${floor} этаж (${floors[floor].length})`;
+                floorSection.appendChild(floorTitle);
+                
+                const roomList = document.createElement('div');
+                roomList.className = 'dispatchers-room-list';
+                
+                const sortedRooms = floors[floor].sort((a, b) => {
+                    const aRoom = parseInt(a.room || a);
+                    const bRoom = parseInt(b.room || b);
+                    return aRoom - bRoom;
+                });
+                
+                sortedRooms.forEach(r => {
+                    const card = document.createElement('div');
+                    card.className = 'dispatchers-today-room-card';
+                    card.dataset.room = r.room;
+                    
+                    card.innerHTML = `
+                        <div class="dispatchers-today-room-number">${r.room}</div>
+                        ${r.time ? `<div class="dispatchers-today-room-time">${r.time}</div>` : ''}
+                    `;
+                    
+                    // Значок опустошения (∅)
+                    const emptyMark = document.createElement('div');
+                    emptyMark.className = 'dispatchers-today-room-empty';
+                    emptyMark.textContent = '∅';
+                    card.appendChild(emptyMark);
+                    
+                    roomList.appendChild(card);
+                });
+                
+                floorSection.appendChild(roomList);
+                roomsEl.appendChild(floorSection);
+            });
+        } else {
+            // Сортировка по времени
+            roomsEl.classList.remove('floor-mode');
+            roomsEl.innerHTML = '';
+            
+            const sortedRoomsByTime = roomsWithTime.slice().sort((a, b) => {
+                if (!a.ts && !b.ts) return parseInt(a.room) - parseInt(b.room);
+                if (!a.ts) return 1;
+                if (!b.ts) return -1;
+                return a.ts - b.ts;
+            });
+            
+            sortedRoomsByTime.forEach(r => {
+                const card = document.createElement('div');
+                card.className = 'dispatchers-today-room-card';
+                card.dataset.room = r.room;
+                
+                card.innerHTML = `
+                    <div class="dispatchers-today-room-number">${r.room}</div>
+                    ${r.time ? `<div class="dispatchers-today-room-time">${r.time}</div>` : ''}
+                `;
+                
+                // Значок опустошения (∅)
+                const emptyMark = document.createElement('div');
+                emptyMark.className = 'dispatchers-today-room-empty';
+                emptyMark.textContent = '∅';
+                card.appendChild(emptyMark);
+                
+                roomsEl.appendChild(card);
+            });
+        }
+    }
+    
+    // Функция для переключения режима сортировки
+    function toggleEmptiedSortMode() {
+        emptiedSortMode = emptiedSortMode === 'time' ? 'floor' : 'time';
+        localStorage.setItem('emptiedSortMode', emptiedSortMode);
+        
+        const sortLabel = document.getElementById('emptied-sort-label');
+        if (sortLabel) {
+            sortLabel.textContent = emptiedSortMode === 'time' ? 'По времени' : 'По этажам';
+        }
+        
+        // Перерисовываем с сохранёнными данными
+        if (window.emptiedRoomsData) {
+            renderEmptiedRooms(window.emptiedRoomsData);
+        }
+    }
+    
+    // Функция для загрузки опустошённых номеров
+    async function fetchEmptiedRooms() {
+        const statusEl = document.getElementById('emptied-status');
+        const roomsEl = document.getElementById('emptied-rooms-list');
+        
+        if (!statusEl || !roomsEl) return;
+        
+        try {
+            const resp = await fetch(EMPTIED_URL);
+            const data = await resp.json();
+            
+            if (!resp.ok) {
+                statusEl.innerHTML = '<span style="color:var(--error);">Ошибка сервера: ' + (data.message || data.error || resp.status) + '</span>';
+                roomsEl.innerHTML = '';
+                return;
+            }
+            
+            const rooms = data.rooms || [];
+            renderEmptiedRooms(rooms);
+            
+        } catch (e) {
+            statusEl.innerHTML = '<span style="color:var(--error);">Ошибка при запросе к бэкенду: ' + e.message + '</span>';
+            roomsEl.innerHTML = '';
+        }
+    }
+    
+    // Функция инициализации
+    function initEmptied() {
+        console.log('Инициализация вкладки "Пустые"...');
+        
+        // Загружаем режим сортировки из localStorage
+        emptiedSortMode = localStorage.getItem('emptiedSortMode') || 'time';
+        
+        // Устанавливаем начальную метку кнопки сортировки
+        const sortLabel = document.getElementById('emptied-sort-label');
+        if (sortLabel) {
+            sortLabel.textContent = emptiedSortMode === 'time' ? 'По времени' : 'По этажам';
+        }
+        
+        // Обработчик кнопки сортировки
+        const sortToggle = document.getElementById('emptied-sort-toggle');
+        if (sortToggle) {
+            sortToggle.addEventListener('click', toggleEmptiedSortMode);
+        }
+        
+        // Загружаем сразу
+        fetchEmptiedRooms();
+        
+        // Обновляем каждые 5 секунд
+        if (emptiedRoomsInterval) {
+            clearInterval(emptiedRoomsInterval);
+        }
+        emptiedRoomsInterval = setInterval(fetchEmptiedRooms, 5000);
+    }
+    
+    // Экспортируем функцию инициализации
+    window.emptiedInit = initEmptied;
+    
+    // Автоматическая инициализация при показе вкладки
+    const originalShowTab = window.showTab;
+    window.showTab = function(tab) {
+        if (originalShowTab) originalShowTab(tab);
+        
+        if (tab === 'emptied') {
+            console.log('Показана вкладка "Пустые", инициализируем...');
+            setTimeout(() => {
+                if (typeof window.emptiedInit === 'function') {
+                    window.emptiedInit();
+                }
+            }, 50);
+        } else {
+            // Останавливаем обновление при переключении на другую вкладку
+            if (emptiedRoomsInterval) {
+                clearInterval(emptiedRoomsInterval);
+                emptiedRoomsInterval = null;
+            }
+        }
+    };
+    
+    // Инициализация при загрузке страницы, если вкладка уже активна
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            const activeTab = document.querySelector('.nav-item.active')?.dataset?.tab || 
+                             localStorage.getItem('minibar-active-tab') || 
+                             localStorage.getItem('active-tab') || 
+                             'accises';
+            if (activeTab === 'emptied') {
+                setTimeout(initEmptied, 100);
+            }
+        });
+    } else {
+        const activeTab = document.querySelector('.nav-item.active')?.dataset?.tab || 
+                         localStorage.getItem('minibar-active-tab') || 
+                         localStorage.getItem('active-tab') || 
+                         'accises';
+        if (activeTab === 'emptied') {
+            setTimeout(initEmptied, 100);
+        }
+    }
 })();
 </script>
 </div>
