@@ -1,0 +1,66 @@
+<div class="page-content">
+    <div class="card">
+        <!-- Заголовок и кнопка выбора файла (для десктопной версии) -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+            <div style="font-weight:700; font-size:16px">Депатчеры</div>
+            <!-- Кнопка сортировки (для всех версий) -->
+            <div style="display:flex; gap:8px; align-items:center;">
+                <button class="mobile-only btn ghost small" id="dispatchers-sort-toggle" style="white-space: nowrap;">
+                    <i class="fas fa-sort"></i> <span id="dispatchers-sort-label">По времени</span>
+                </button>
+                <!-- Кнопка выбора файла только для десктопной версии -->
+                <div class="desktop-only" style="display:flex; gap:8px; align-items:center;">
+                    <input type="file" id="dispatchers-pdfFile" accept=".pdf" style="display:none;"/>
+                    <span id="dispatchers-fileName" class="muted" style="font-size:13px; margin-right:8px;"></span>
+                    <button class="btn" id="dispatchers-selectFileBtn"><i class="fas fa-upload"></i> Выбрать файл</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Инструкции (только для десктопной версии) -->
+        <div class="desktop-only">
+            <div class="instructions" style="background:rgba(39,103,73,0.08); padding:15px; border-radius:10px; margin-bottom:15px;">
+                <h3 style="margin:0 0 10px 0; font-size:14px; font-weight:600;">Инструкция:</h3>
+                <ol style="margin:0; padding-left:20px; font-size:13px; line-height:1.6;">
+                    <li>Выгрузите депатчеры в Opera и сохраните файл в папке 04 MB</li>
+                    <li>Нажмите кнопку "Выбрать файл" и выберите файл OperaPrint.pdf</li>
+                    <li>В результатах: один клик - исключить жилой номер, двойной клик - пометить номер на заезд</li>
+                    <li>Нажмите "Выгрузить депатчеры" для печати итогового списка</li>
+                </ol>
+                <div class="file-path" style="font-family:monospace; background:rgba(15,23,36,0.06); padding:8px; border-radius:8px; margin-top:12px; font-size:12px;">
+                    <div style="margin-bottom: 8px; font-weight: 600;">Путь к файлу:</div>
+                    <button class="copy-text" onclick="copyText('G:\\Food and Beverage\\F&B Service\\Outlets\\Room Service\\04 MB\\OperaPrint.pdf')">
+                        G:\Food and Beverage\F&B Service\Outlets\Room Service\04 MB\OperaPrint.pdf
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Автоматически загружаемые номера из беседы -->
+        <div class="card" style="margin-bottom:15px;" id="dispatchers-today-rooms">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+                <div id="dispatchers-today-rooms-title" style="font-weight:600; font-size:14px; padding:12px;">Уже проверено (0):</div>
+                <button class="desktop-only btn ghost small" id="dispatchers-sort-toggle-mobile" style="white-space: nowrap;">
+                    <i class="fas fa-sort"></i> <span id="dispatchers-sort-label-mobile">По времени</span>
+                </button>
+            </div>
+            <div id="dispatchers-today-rooms-status">Загрузка текущего списка...</div>
+            <div id="dispatchers-today-rooms-list"></div>
+        </div>
+        
+        <!-- Таблица номеров комнат (только для мобильной версии, скрыта) -->
+        <div class="mobile-only" style="display:none;">
+            <div style="font-weight:600; font-size:14px; margin-bottom:10px;">Таблица номеров комнат</div>
+            <div id="dispatchers-roomsGrid"></div>
+        </div>
+        
+        <!-- Кнопки обработки (только для десктопной версии) -->
+        <div class="desktop-only">
+            <div class="card" id="dispatchers-result">
+                <p class="muted" style="text-align:center; padding:20px;">Результаты появятся здесь после обработки файла.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+
